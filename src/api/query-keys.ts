@@ -3,5 +3,6 @@ export const queryKeys = {
   health: ["health"] as const,
   accounts: ["accounts"] as const,
   account: (id: number) => ["accounts", id] as const,
+  accountLive: (id: number) => ["accounts", id, "live"] as const,
   settings: ["settings"] as const,
 }

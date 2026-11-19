@@ -13,7 +13,7 @@ interface ServiceInfoCardProps {
   onRetry: () => void
 }
 
-/** 设置页顶部：health 接口给出的版本、运行时长与鉴权模式。 */
+/** 设置页侧栏：health 接口给出的版本、运行时长与鉴权模式。 */
 export function ServiceInfoCard({
   health,
   error,
@@ -24,16 +24,11 @@ export function ServiceInfoCard({
   const online = health?.status === "ok"
 
   return (
-    <section className="rounded-xl border bg-card p-5" aria-busy={loading}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="text-base font-medium">服务信息</h2>
-          <p className="text-xs text-muted-foreground">
-            来自 GET /api/v1/health，用于确认版本与运行状态。
-          </p>
-        </div>
+    <section className="rounded-xl border bg-card p-4" aria-busy={loading}>
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="text-sm font-medium">服务信息</h2>
         {loading ? (
-          <Skeleton className="h-5 w-20 rounded-full" />
+          <Skeleton className="h-4 w-16 rounded-full" />
         ) : error ? (
           <Badge variant="destructive">不可用</Badge>
         ) : (
@@ -44,7 +39,7 @@ export function ServiceInfoCard({
         )}
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <dl className="mt-3 space-y-2">
         <Info label="版本" value={health?.version || "—"} />
         <Info label="运行时长" value={formatUptime(health?.uptime_seconds)} />
         <Info label="鉴权模式" value={hasToken ? "token 鉴权" : "本地免鉴权"} />
@@ -52,9 +47,9 @@ export function ServiceInfoCard({
       </dl>
 
       {error ? (
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-destructive">
-          <span>{error}</span>
-          <Button variant="outline" size="sm" onClick={onRetry}>
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3 text-xs text-destructive">
+          <span className="min-w-0 break-words">{error}</span>
+          <Button variant="outline" size="xs" onClick={onRetry}>
             <RefreshCwIcon />
             重试
           </Button>
@@ -74,11 +69,13 @@ function Info({
   mono?: boolean
 }) {
   return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
       <dd
         className={
-          mono ? "truncate font-mono text-sm" : "truncate text-sm font-medium"
+          mono
+            ? "truncate text-right font-mono text-sm"
+            : "truncate text-right text-sm font-medium"
         }
         title={value}
       >

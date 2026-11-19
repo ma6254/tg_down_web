@@ -3,22 +3,16 @@ import { toast } from "sonner"
 import { describeError } from "@/api/client"
 import type { AccountDetail } from "@/api/types"
 import { ErrorState } from "@/components/common/ErrorState"
+import { ModalDialog } from "@/components/common/ModalDialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { DialogClose } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAccountDetail, useSelectAccount } from "@/hooks/use-accounts"
 import { accountKindLabels } from "@/lib/account"
 import { formatDateTime } from "@/lib/format"
 import { maskPhone } from "@/lib/mask"
+import { AccountLiveSection } from "@/pages/accounts/AccountLiveSection"
 import { AccountStateBadge } from "@/pages/accounts/AccountStateBadge"
 
 interface AccountDetailDialogProps {
@@ -26,7 +20,7 @@ interface AccountDetailDialogProps {
   onClose: () => void
 }
 
-/** 账号详情：session 状态、时间与最后错误，并可直接切换为当前账号。 */
+/** 账号详情：session 状态、时间、最后错误与联网查询的在线资料，并可直接切换为当前账号。 */
 export function AccountDetailDialog({
   accountId,
   onClose,
@@ -49,36 +43,20 @@ export function AccountDetailDialog({
   }
 
   return (
-    <Dialog
+    <ModalDialog
       open={accountId !== null}
       onOpenChange={(open) => {
         if (!open) {
           onClose()
         }
       }}
-    >
-      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{data?.name ?? "账号详情"}</DialogTitle>
-          <DialogDescription>
-            {accountId !== null ? `账号 ID ${accountId}` : "账号详情"}
-          </DialogDescription>
-        </DialogHeader>
-
-        {isPending ? (
-          <DetailSkeleton />
-        ) : error ? (
-          <ErrorState
-            className="py-8"
-            title="读取详情失败"
-            message={describeError(error)}
-            onRetry={() => void refetch()}
-          />
-        ) : data ? (
-          <DetailBody account={data} />
-        ) : null}
-
-        <DialogFooter>
+      title={data?.name ?? "账号详情"}
+      description={
+        accountId !== null ? `账号 ID ${accountId}` : "账号详情"
+      }
+      size="md"
+      footer={
+        <>
           <DialogClose render={<Button variant="outline" />}>关闭</DialogClose>
           {data &&
           !data.current &&
@@ -91,9 +69,22 @@ export function AccountDetailDialog({
               设为当前
             </Button>
           ) : null}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      {isPending ? (
+        <DetailSkeleton />
+      ) : error ? (
+        <ErrorState
+          className="py-8"
+          title="读取详情失败"
+          message={describeError(error)}
+          onRetry={() => void refetch()}
+        />
+      ) : data ? (
+        <DetailBody account={data} />
+      ) : null}
+    </ModalDialog>
   )
 }
 
@@ -141,6 +132,7 @@ function DetailBody({ account }: { account: AccountDetail }) {
         <dt className="text-muted-foreground">更新时间</dt>
         <dd className="tabular-nums">{formatDateTime(account.updated_at)}</dd>
       </dl>
+      <AccountLiveSection account={account} />
     </div>
   )
 }

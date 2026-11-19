@@ -65,6 +65,7 @@ skeleton sonner table tabs textarea tooltip`。
 | POST | `/api/v1/accounts/probe` | 读取本机 tdata，校验并导入账号；同步执行，最长 300s |
 | GET | `/api/v1/accounts` | `accounts[]` + `current_account_id` |
 | GET | `/api/v1/accounts/{id}` | 详情，含 `updated_at`、`session_present` |
+| GET | `/api/v1/accounts/{id}/live` | 联网查询在线资料（等价 `account info --live`）；502 失败、504 超时 |
 | POST | `/api/v1/accounts/{id}/select` | 设为当前账号；404 不存在、409 session 不可用 |
 | GET/PUT | `/api/v1/settings` | 配置数组；PUT 为补丁，值为 `null` 表示删除 |
 
@@ -171,7 +172,8 @@ src/
     events.ts          # P3：fetch 流式 SSE 客户端
   components/
     layout/            # AppShell / Sidebar / Topbar / PageHeader / ConnectionBadge
-    common/            # EmptyState / ErrorState / Loading / ConfirmDialog
+    accounts/          # AccountAvatar / AccountPickerDialog
+    common/            # EmptyState / ErrorState / ModalDialog
     auth/              # AuthGate / LoginScreen / OfflineScreen
     accounts/          # AccountTable / AccountMobileList / AccountDetailDialog / ProbeDialog
     settings/          # ServiceInfoCard / SettingsTable / SettingEditDialog
@@ -456,9 +458,14 @@ GET /api/v1/health（带 token，如果有）
 
 窄屏改卡片：名称 + 状态 + 用户名/手机号 + 操作。
 
-- 切换当前账号：`POST /accounts/{id}/select` → 失效 `['accounts']` → toast；409 原样提示。
+- 切换当前账号：行内「设为当前」直接调用 `POST /accounts/{id}/select` → 失效
+  `['accounts']` → toast；409 原样提示。顶部「切换账号」打开 `AccountPickerDialog`
+  （至少两个账号时可用），确认后走同一条 select 流程；选中的就是当前账号时只提示不重复切换。
 - 详情弹窗：ID、类型、名称、用户名、手机号（脱敏）、状态、创建/更新时间、
   `session_present`（false 时醒目提示「session 文件缺失，需要重新登录」）、`last_error`。
+- 在线资料（`GET /accounts/{id}/live`，等价 `account info --live`）：打开弹窗后自动联网查询，
+  展示名称、会员/Bot、生日、简介、已登录客户端与查询时间；失败展示原因与「重试」，
+  不影响本地详情。Bot 账号与 session 缺失的账号直接给提示，不发请求。
 - 空状态：说明「本工具目前通过读取本机 Telegram Desktop 的 tdata 导入账号」+ 导入按钮。
 
 导入（probe）弹窗：
@@ -481,24 +488,35 @@ GET /api/v1/health（带 token，如果有）
 
 ### 7.4 设置页
 
-- 服务信息卡：`status`、`version`、`uptime_seconds`（格式化为 `1 天 2 小时`）、
+- 布局：桌面两栏（左侧配置 `1fr`，右侧 `17rem` 服务信息 + 说明），
+  窄屏单列且服务信息在前；页面宽度 `max-w-4xl`。
+- 服务信息卡（侧栏）：`status`、`version`、`uptime_seconds`（格式化为 `1 天 2 小时`）、
   当前鉴权模式（前端推断：有 token / 无 token）、接口地址。
-- 配置表：每行 `key`、`description`、值、徽章（只读 / 未识别）、操作（编辑 / 清除）。
+- 配置按语义分组成卡片：**网络**（`http_proxy` + 行内启用开关）、
+  **账号**（`current_account_id` 只读 + 账号选择弹窗）、**其他配置**（未识别/未来新增键）。
+  分组顺序固定，空组不渲染。
+- 每行以中文标题为主（`knownSettings.label` 或只读键注册表），原始键名作为次要
+  `code` 展示；徽章包括已启用 / 已停用 / 只读 / 未识别。
 - 值脱敏：`http_proxy` 若带用户名密码，展示为 `http://user:***@host:port`
   （后端已返回 `***`，前端再做一次幂等展示；见 §11）。
 - 编辑：只对 `known && !read_only` 的键开放。`http_proxy` 前端校验
   `socks5/socks5h/http/https + host`，与服务端规则一致；保存仍以服务端校验为准。
-- 布尔项（`http_proxy_enabled`）用 Switch 编辑：关闭表示保留代理地址但直连；
-  未配置时显示「已启用（默认）」，清除开关恢复默认启用。
-- 清除：`PUT {"http_proxy": null}`；`http_proxy_enabled` 的清除语义是恢复默认（启用）。
+- 布尔项（`http_proxy_enabled`）不单独占行，与 `http_proxy` 合并为一条：
+  行内 Switch 直接切换启用状态（只写 `http_proxy_enabled`，不动地址），
+  关闭表示保留地址但直连。
+- 首次设置地址时顺带写入 `http_proxy_enabled=true`，省掉「设置完再手动开一次」；
+  已配置过地址时编辑不会改变开关状态。
+- 清除：合并行的「清除」一次写 `{"http_proxy": null, "http_proxy_enabled": null}`，
+  地址与开关一起恢复默认，避免留下「开关已启用、却没有地址」的半套配置。
 - PUT 成功后用响应里的完整数组回填 `['settings']`，不额外发 GET。
-- `current_account_id`：只读展示，附「去账号页切换」链接。
+- `current_account_id`：只读展示（`#1`），行内「选择账号」打开 `AccountPickerDialog`
+  切换当前账号；切换成功后重新拉取配置，值随之更新。
 - 未知键（`known:false`）：只展示，不提供编辑（服务端会拒绝）。
-- 空配置：`http_proxy` 未设置时显示「未配置（直连）」，`http_proxy_enabled` 显示「已启用（默认）」。
+- 空配置：合并行显示「未配置（直连）」，Switch 不可用并提示「先设置代理地址」。
 
 > 设置页不预设 `api.md` 里的 `download_dir` / `max_concurrency` 等键——
 > 这些配置目前不在 `config.items` 里，后端也不会返回。等后端登记后自动出现，
-> 编辑控件按 key 注册表（`http_proxy` 专用输入、`http_proxy_enabled` Switch，其余通用文本框）。
+> 编辑控件按 key 注册表（`http_proxy` 专用输入 + 行内启用 Switch，其余通用文本框）。
 
 ### 7.5 会话与消息（Phase 2，需后端接口）
 
@@ -531,11 +549,11 @@ GET /api/v1/health（带 token，如果有）
 | 项 | 规范 |
 |---|---|
 | 侧栏 | 15rem，`border-r`，`bg-sidebar` |
-| 内容 | 表格页 `px-6 py-6`（窄屏 `px-4`）；设置页 `max-w-3xl` |
+| 内容 | 表格页 `px-6 py-6`（窄屏 `px-4`）；设置页 `max-w-4xl`（桌面两栏） |
 | 圆角 | 沿用主题 `--radius`（0.625rem） |
 | 字号 | 标题 `text-2xl font-semibold`；页说明 `text-sm text-muted-foreground` |
 | 表格 | 行高 56px；表头 `text-xs text-muted-foreground` |
-| 弹窗 | 详情 520px、probe 640px；内容超高时内部滚动 |
+| 弹窗 | `ModalDialog`：sm 28rem / md 32rem / lg 36rem / xl 48rem；标题与底部固定，内容区独立滚动 |
 
 ### 8.2 状态语义
 
@@ -570,7 +588,7 @@ GET /api/v1/health（带 token，如果有）
 - 空状态：图标 + 一句解释 + 主操作（导入 / 去设置 / 去账号页）。
 - 错误：页面级错误用 `ErrorState`（重试按钮）；操作失败用 toast；
   表单校验用字段内联错误。规则：**用户能改的放内联，系统级的放 toast/页面**。
-- 破坏性操作（清除配置、后续删除任务）统一 `AlertDialog` 二次确认。
+- 破坏性操作（清除配置、后续删除任务）统一用 `ModalDialog` + 危险按钮二次确认。
 - 可访问性：弹窗有标题与描述；图标按钮带 `aria-label`；焦点环可见；
   状态不只靠颜色（都有文字）；`prefers-reduced-motion` 由动画库处理。
 
@@ -580,6 +598,58 @@ GET /api/v1/health（带 token，如果有）
   「已切换当前账号」「已保存 http_proxy」「探测超时，请检查代理或调大超时」。
 - 服务端返回的中文错误直接展示，前端不二次包装成「请求失败」。
 - 技术名词保留原文：MTProto、Bot API、session、tdata、token。
+
+### 8.6 公共模态框（ModalDialog）
+
+`components/common/ModalDialog.tsx` 是全站统一的对话框外壳，页面不再直接拼
+`DialogContent` + `max-h` + `overflow`：
+
+| 参数 | 说明 |
+|---|---|
+| `open` / `onOpenChange` | 受控开关，透传给 base-ui Dialog |
+| `title` / `description` | 标题必填；描述可省略，两者都放进 `DialogHeader` |
+| `size` | `sm` / `md`（默认）/ `lg` / `xl`，对应 28 / 32 / 36 / 48rem |
+| `footer` | 底部按钮区；不传则没有 footer，表单提交按钮用 `form` 属性关联 |
+| `className` / `bodyClassName` | 特殊布局时的逃生口 |
+
+- 标题与 footer 固定，内容区独立滚动，长内容不会把关闭按钮和操作按钮顶出视口。
+- 关闭按钮、遮罩、Esc、焦点管理沿用 `components/ui/dialog`（base-ui），不重复实现。
+- 账号详情、probe、设置编辑、清除四个弹窗都已迁移；新增弹窗直接复用，
+  不要再手写尺寸与滚动样式。
+
+### 8.7 账号选择对话框（AccountPickerDialog）
+
+`components/accounts/AccountPickerDialog.tsx` 在 `ModalDialog` 上封装「从账号列表里
+单选一个账号」的交互，供需要指定账号的后续功能复用（下载、会话浏览等）：
+
+```tsx
+<AccountPickerDialog
+  open={open}
+  onOpenChange={setOpen}
+  defaultAccountId={currentAccountId}
+  confirmLabel="选择"
+  onConfirm={(account) => {
+    // 调用方决定用途：切换当前账号、作为下载目标、打开会话……
+  }}
+/>
+```
+
+| 参数 | 说明 |
+|---|---|
+| `open` / `onOpenChange` | 受控开关；透传给 ModalDialog |
+| `onConfirm` | 确认回调，参数是选中的 `Account`；弹窗随后自动关闭 |
+| `title` / `description` / `confirmLabel` | 文案覆盖，默认「选择账号」「确定」 |
+| `defaultAccountId` | 默认选中项；不传则默认当前账号（`current`） |
+
+- 只有 `state === "authed"` 的账号可选，未登录/异常行置灰并标注状态；
+- 关闭弹窗时清空手动选择，下次打开回到默认账号；
+- 数据来自 `useAccounts(open)`：关闭时不发请求，打开后复用账号列表缓存；
+- 内置加载骨架、空状态、错误重试；头像与账号列表共用 `AccountAvatar`。
+
+> 已接入两处：账号页顶部「切换账号」、设置页「账号」分组里的「选择账号」。
+> 两者确认后都调用 `POST /accounts/{id}/select`（设置页额外刷新一次配置）；
+> 所选账号已是当前账号时只提示、不重复调用。其余需要「先选账号再操作」的入口
+> 直接复用本组件，不要另写一套账号单选列表。
 
 ## 9. 工程规范与质量
 
@@ -889,7 +959,7 @@ Phase 1（W0–W4）约 **4–4.5 天**；W5–W7 是后续约 **5.5–6 天**�
 - **配置项列表**（`SettingsList`）
   - 展示服务端返回的全部配置项：键、描述、值、`只读` / `未识别` 徽章；
   - `http_proxy` 的密码经 `maskProxyUrl` 脱敏展示；
-  - `current_account_id` 只读，提供「去账号页」；
+  - `current_account_id` 只读，提供「选择账号」（`AccountPickerDialog`）切换；
   - 已知可写键可编辑/清除；未识别键只展示。
 - **首次设置 / 编辑 / 清除**
   - 服务端只返回已写入的键，`http_proxy` 未配置时列表补一条
@@ -928,8 +998,8 @@ Phase 1（W0–W4）约 **4–4.5 天**；W5–W7 是后续约 **5.5–6 天**�
   前端用 `knownSettings` 注册表补占位行，后端补元数据后可移除镜像（P1 仍未做）。
 - 后端 `344d875` 为 settings 增加了 `type` 字段（`string` / `integer` / `boolean`）；
   前端 `Setting` 类型已同步，UI 暂未使用该字段（W4 可据此驱动输入控件）。
-- 后续新增 `http_proxy_enabled`（布尔，默认 true）：设置页增加 Switch；
-  关闭后保留 `http_proxy` 但直连，清除恢复默认启用。
+- `http_proxy_enabled`（布尔，默认 true）与 `http_proxy` 合并为一行展示：行内 Switch
+  只写开关，关闭后保留地址但直连；清除会同时清掉地址与开关（仍是两个后端键，API 不变）。
 - 默认值已收敛到后端 `config.Item.Default`，并通过 settings API 暴露 `default`；
   前端 `KnownSetting.defaultValue` 与 `SettingRow.defaultValue` 用于未配置占位行，
   两边数值需保持一致（后端补 known keys 元数据后可去掉前端镜像）。

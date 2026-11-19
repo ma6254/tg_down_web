@@ -1,8 +1,14 @@
 import { useState } from "react"
-import { ImportIcon, RefreshCwIcon, UsersIcon } from "lucide-react"
+import {
+  ArrowLeftRightIcon,
+  ImportIcon,
+  RefreshCwIcon,
+  UsersIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 import { describeError } from "@/api/client"
 import type { Account } from "@/api/types"
+import { AccountPickerDialog } from "@/components/accounts/AccountPickerDialog"
 import { EmptyState } from "@/components/common/EmptyState"
 import { ErrorState } from "@/components/common/ErrorState"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -20,6 +26,7 @@ export function AccountsPage() {
   const select = useSelectAccount()
   const [detailId, setDetailId] = useState<number | null>(null)
   const [probeOpen, setProbeOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const accounts = accountsQuery.data?.accounts ?? []
 
@@ -28,6 +35,14 @@ export function AccountsPage() {
       onSuccess: () => toast.success(`已切换为 ${account.name}`),
       onError: (error) => toast.error(describeError(error)),
     })
+  }
+
+  function handlePickAccount(account: Account) {
+    if (account.current) {
+      toast.info(`当前账号已是 ${account.name}`)
+      return
+    }
+    handleSelect(account)
   }
 
   return (
@@ -47,6 +62,18 @@ export function AccountsPage() {
                 className={accountsQuery.isFetching ? "animate-spin" : undefined}
               />
               刷新
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPickerOpen(true)}
+              disabled={accounts.length < 2}
+              title={
+                accounts.length < 2 ? "至少需要两个账号才能切换" : undefined
+              }
+            >
+              <ArrowLeftRightIcon />
+              切换账号
             </Button>
             <Button size="sm" onClick={() => setProbeOpen(true)}>
               <ImportIcon />
@@ -93,6 +120,11 @@ export function AccountsPage() {
         onClose={() => setDetailId(null)}
       />
       <ProbeDialog open={probeOpen} onOpenChange={setProbeOpen} />
+      <AccountPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onConfirm={handlePickAccount}
+      />
     </>
   )
 }

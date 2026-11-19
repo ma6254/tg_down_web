@@ -6,22 +6,15 @@ import {
   XCircleIcon,
 } from "lucide-react"
 import { describeError, isApiError } from "@/api/client"
-import type { ProbeDevice, ProbeResponse } from "@/api/types"
+import type { ProbeResponse } from "@/api/types"
+import { ModalDialog } from "@/components/common/ModalDialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useProbeAccounts } from "@/hooks/use-accounts"
-import { formatDateTime } from "@/lib/format"
+import { deviceLabel } from "@/lib/device"
 import { maskPhone } from "@/lib/mask"
 
 interface ProbeDialogProps {
@@ -147,147 +140,143 @@ export function ProbeDialog({ open, onOpenChange }: ProbeDialogProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>
-            {result ? "探测结果" : "从 Telegram Desktop 导入"}
-          </DialogTitle>
-          <DialogDescription>
-            {result
-              ? "以下账号来自本机 tdata，探测时已使用其中已有的授权。"
-              : "读取本机 Telegram Desktop 的 tdata，校验其中的登录账号；不会修改 tdata。"}
-          </DialogDescription>
-        </DialogHeader>
-
-        {result ? (
-          <ProbeResultView result={result} imported={shouldImport} />
+    <ModalDialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      title={result ? "探测结果" : "从 Telegram Desktop 导入"}
+      description={
+        result
+          ? "以下账号来自本机 tdata，探测时已使用其中已有的授权。"
+          : "读取本机 Telegram Desktop 的 tdata，校验其中的登录账号；不会修改 tdata。"
+      }
+      size="lg"
+      footer={
+        result ? (
+          <>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => {
+                setResult(null)
+                setError(null)
+              }}
+            >
+              再次探测
+            </Button>
+            <Button type="button" onClick={() => handleOpenChange(false)}>
+              完成
+            </Button>
+          </>
         ) : (
-          <form id="probe-form" className="space-y-4" onSubmit={handleSubmit}>
+          <>
+            <Button variant="outline" type="button" onClick={handleCancel}>
+              {probe.isPending ? "取消探测" : "取消"}
+            </Button>
+            <Button
+              type="submit"
+              form="probe-form"
+              disabled={probe.isPending}
+              aria-busy={probe.isPending}
+            >
+              {probe.isPending ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : null}
+              {probe.isPending ? `探测中… ${elapsed}s` : "开始探测"}
+            </Button>
+          </>
+        )
+      }
+    >
+      {result ? (
+        <ProbeResultView result={result} imported={shouldImport} />
+      ) : (
+        <form id="probe-form" className="space-y-4" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <Label htmlFor="probe-tdata">tdata 目录</Label>
+            <Input
+              id="probe-tdata"
+              value={tdata}
+              onChange={(event) => setTdata(event.target.value)}
+              placeholder="留空自动查找"
+              disabled={probe.isPending}
+              spellCheck={false}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              默认查找 %APPDATA%\Telegram Desktop\tdata；也可以粘贴完整路径。
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="probe-tdata">tdata 目录</Label>
+              <Label htmlFor="probe-passcode">本地密码（可选）</Label>
               <Input
-                id="probe-tdata"
-                value={tdata}
-                onChange={(event) => setTdata(event.target.value)}
-                placeholder="留空自动查找"
+                id="probe-passcode"
+                type="password"
+                value={passcode}
+                onChange={(event) => setPasscode(event.target.value)}
+                placeholder="设置了本地密码时填写"
+                autoComplete="off"
                 disabled={probe.isPending}
-                spellCheck={false}
-                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="probe-timeout">超时（秒）</Label>
+              <Input
+                id="probe-timeout"
+                type="number"
+                min={5}
+                max={300}
+                step={1}
+                inputMode="numeric"
+                value={timeoutSeconds}
+                onChange={(event) => setTimeoutSeconds(event.target.value)}
+                disabled={probe.isPending}
               />
               <p className="text-xs text-muted-foreground">
-                默认查找 %APPDATA%\Telegram Desktop\tdata；也可以粘贴完整路径。
+                范围 5–300，默认 30。
               </p>
             </div>
+          </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="probe-passcode">本地密码（可选）</Label>
-                <Input
-                  id="probe-passcode"
-                  type="password"
-                  value={passcode}
-                  onChange={(event) => setPasscode(event.target.value)}
-                  placeholder="设置了本地密码时填写"
-                  autoComplete="off"
-                  disabled={probe.isPending}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="probe-timeout">超时（秒）</Label>
-                <Input
-                  id="probe-timeout"
-                  type="number"
-                  min={5}
-                  max={300}
-                  step={1}
-                  inputMode="numeric"
-                  value={timeoutSeconds}
-                  onChange={(event) => setTimeoutSeconds(event.target.value)}
-                  disabled={probe.isPending}
-                />
-                <p className="text-xs text-muted-foreground">
-                  范围 5–300，默认 30。
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label htmlFor="probe-import">导入到账号列表</Label>
-                <p className="text-xs text-muted-foreground">
-                  关闭后只探测，不写入 sessions 与数据库。
-                </p>
-              </div>
-              <Switch
-                id="probe-import"
-                checked={shouldImport}
-                onCheckedChange={(checked) => setShouldImport(checked)}
-                disabled={probe.isPending}
-              />
-            </div>
-
-            {probe.isPending ? (
-              <p
-                role="status"
-                aria-live="polite"
-                className="flex items-center gap-1.5 text-xs text-muted-foreground"
-              >
-                <LoaderCircleIcon className="size-3.5 animate-spin" />
-                正在连接 Telegram，通常需要数秒到数十秒；可随时取消。
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+            <div className="space-y-0.5">
+              <Label htmlFor="probe-import">导入到账号列表</Label>
+              <p className="text-xs text-muted-foreground">
+                关闭后只探测，不写入 sessions 与数据库。
               </p>
-            ) : null}
+            </div>
+            <Switch
+              id="probe-import"
+              checked={shouldImport}
+              onCheckedChange={(checked) => setShouldImport(checked)}
+              disabled={probe.isPending}
+            />
+          </div>
 
-            {error ? (
-              <p
-                role="alert"
-                className="flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
-              >
-                <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
-                <span>{error}</span>
-              </p>
-            ) : null}
-          </form>
-        )}
+          {probe.isPending ? (
+            <p
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            >
+              <LoaderCircleIcon className="size-3.5 animate-spin" />
+              正在连接 Telegram，通常需要数秒到数十秒；可随时取消。
+            </p>
+          ) : null}
 
-        <DialogFooter>
-          {result ? (
-            <>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => {
-                  setResult(null)
-                  setError(null)
-                }}
-              >
-                再次探测
-              </Button>
-              <Button type="button" onClick={() => handleOpenChange(false)}>
-                完成
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" type="button" onClick={handleCancel}>
-                {probe.isPending ? "取消探测" : "取消"}
-              </Button>
-              <Button
-                type="submit"
-                form="probe-form"
-                disabled={probe.isPending}
-                aria-busy={probe.isPending}
-              >
-                {probe.isPending ? (
-                  <LoaderCircleIcon className="animate-spin" />
-                ) : null}
-                {probe.isPending ? `探测中… ${elapsed}s` : "开始探测"}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          {error ? (
+            <p
+              role="alert"
+              className="flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
+            >
+              <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span>{error}</span>
+            </p>
+          ) : null}
+        </form>
+      )}
+    </ModalDialog>
   )
 }
 
@@ -384,13 +373,3 @@ function ProbeResultView({
   )
 }
 
-function deviceLabel(device: ProbeDevice): string {
-  const parts = [
-    device.app_name,
-    device.platform,
-    device.device_model,
-    device.country,
-    device.active_at ? `最近活跃 ${formatDateTime(device.active_at)}` : "",
-  ].filter(Boolean)
-  return parts.length > 0 ? parts.join(" · ") : "未知客户端"
-}

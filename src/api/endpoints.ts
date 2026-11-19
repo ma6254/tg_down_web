@@ -1,6 +1,7 @@
 import { request } from "@/api/client"
 import type {
   AccountDetail,
+  AccountLiveInfo,
   AccountsResponse,
   Health,
   ProbeRequest,
@@ -38,6 +39,13 @@ export const api = {
     },
     get(id: number, signal?: AbortSignal): Promise<AccountDetail> {
       return request<AccountDetail>(`/accounts/${id}`, { signal })
+    },
+    /** 联网查询在线资料；服务端上限 30s，客户端留 5s 余量。 */
+    live(id: number, signal?: AbortSignal): Promise<AccountLiveInfo> {
+      return request<AccountLiveInfo>(`/accounts/${id}/live`, {
+        signal,
+        timeoutMs: 35_000,
+      })
     },
     select(id: number): Promise<SelectAccountResponse> {
       return request<SelectAccountResponse>(`/accounts/${id}/select`, {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatDateTime, formatUptime } from "./format"
+import { formatBirthday, formatDateTime, formatUptime } from "./format"
 
 describe("formatDateTime", () => {
   it("空值与非法值返回占位符", () => {
@@ -11,6 +11,25 @@ describe("formatDateTime", () => {
   it("按本地时区格式化为 YYYY-MM-DD HH:mm", () => {
     const local = new Date(2026, 0, 2, 3, 4, 5).getTime() / 1000
     expect(formatDateTime(local)).toBe("2026-01-02 03:04")
+  })
+})
+
+describe("formatBirthday", () => {
+  it("空值与非法值返回占位符", () => {
+    expect(formatBirthday(undefined)).toBe("—")
+    expect(formatBirthday({ day: 0, month: 5 })).toBe("—")
+    expect(formatBirthday({ day: 12, month: 0 })).toBe("—")
+  })
+
+  it("有年份时输出 YYYY-MM-DD", () => {
+    expect(formatBirthday({ day: 2, month: 3, year: 2000 })).toBe("2000-03-02")
+  })
+
+  it("只公开月日时标注未公开年份", () => {
+    expect(formatBirthday({ day: 12, month: 5 })).toBe("5 月 12 日（未公开年份）")
+    expect(formatBirthday({ day: 12, month: 5, year: 0 })).toBe(
+      "5 月 12 日（未公开年份）"
+    )
   })
 })
 

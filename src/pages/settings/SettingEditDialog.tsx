@@ -3,15 +3,8 @@ import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react"
 import { toast } from "sonner"
 import { describeError } from "@/api/client"
 import { knownSettings, type SettingRow } from "@/lib/settings"
+import { ModalDialog } from "@/components/common/ModalDialog"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -52,94 +45,39 @@ export function SettingEditDialog({ row, onClose }: SettingEditDialogProps) {
     }
 
     setError(null)
-    update.mutate(
-      { [row.key]: trimmed },
-      {
-        onSuccess: () => {
-          toast.success(`已保存 ${row.key}`)
-          onClose()
-        },
-        onError: (err) => setError(describeError(err)),
-      }
-    )
+    // 首次设置代理地址时顺带启用开关：否则用户还要再回去拨一次行内开关，
+    // 而且服务端默认值可能正好是禁用。已配置过地址时不改开关状态。
+    const patch: Record<string, string> = { [row.key]: trimmed }
+    if (known?.kind === "proxy" && !row.configured) {
+      patch.http_proxy_enabled = "true"
+    }
+    update.mutate(patch, {
+      onSuccess: () => {
+        toast.success(`已保存 ${row.key}`)
+        onClose()
+      },
+      onError: (err) => setError(describeError(err)),
+    })
   }
 
   return (
-    <Dialog
+    <ModalDialog
       open={row !== null}
       onOpenChange={(open) => {
         if (!open) {
           onClose()
         }
       }}
-    >
-      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            {row?.configured ? "编辑配置" : "设置配置"}
-            {known ? `：${known.label}` : ""}
-          </DialogTitle>
-          <DialogDescription>
-            {row ? `配置项 ${row.key}` : "配置项"}
-          </DialogDescription>
-        </DialogHeader>
-
-        <form id="setting-form" className="space-y-4" onSubmit={handleSubmit}>
-          {known?.kind === "boolean" ? (
-            <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label htmlFor="setting-boolean">{known.label}</Label>
-                <p className="text-xs text-muted-foreground">
-                  {known.description}
-                </p>
-              </div>
-              <Switch
-                id="setting-boolean"
-                checked={value === "true"}
-                onCheckedChange={(checked) =>
-                  setValue(checked ? "true" : "false")
-                }
-                disabled={update.isPending}
-              />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label htmlFor="setting-value">{known?.label ?? "值"}</Label>
-              <Input
-                id="setting-value"
-                value={value}
-                onChange={(event) => setValue(event.target.value)}
-                placeholder={known?.placeholder ?? "输入配置值"}
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus
-                disabled={update.isPending}
-              />
-              {known?.description ? (
-                <p className="text-xs text-muted-foreground">
-                  {known.description}
-                </p>
-              ) : null}
-              {known?.kind === "proxy" ? (
-                <p className="text-xs text-muted-foreground">
-                  修改只影响新连接，运行中的任务会沿用旧代理。
-                </p>
-              ) : null}
-            </div>
-          )}
-
-          {error ? (
-            <p
-              role="alert"
-              className="flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
-            >
-              <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
-              <span>{error}</span>
-            </p>
-          ) : null}
-        </form>
-
-        <DialogFooter>
+      title={
+        <>
+          {row?.configured ? "编辑配置" : "设置配置"}
+          {known ? `：${known.label}` : ""}
+        </>
+      }
+      description={row ? `配置项 ${row.key}` : "配置项"}
+      size="md"
+      footer={
+        <>
           <Button variant="outline" type="button" onClick={onClose}>
             取消
           </Button>
@@ -149,8 +87,65 @@ export function SettingEditDialog({ row, onClose }: SettingEditDialogProps) {
             ) : null}
             {update.isPending ? "保存中…" : "保存"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      <form id="setting-form" className="space-y-4" onSubmit={handleSubmit}>
+        {known?.kind === "boolean" ? (
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+            <div className="space-y-0.5">
+              <Label htmlFor="setting-boolean">{known.label}</Label>
+              <p className="text-xs text-muted-foreground">
+                {known.description}
+              </p>
+            </div>
+            <Switch
+              id="setting-boolean"
+              checked={value === "true"}
+              onCheckedChange={(checked) =>
+                setValue(checked ? "true" : "false")
+              }
+              disabled={update.isPending}
+            />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="setting-value">{known?.label ?? "值"}</Label>
+            <Input
+              id="setting-value"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder={known?.placeholder ?? "输入配置值"}
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              disabled={update.isPending}
+            />
+            {known?.description ? (
+              <p className="text-xs text-muted-foreground">
+                {known.description}
+              </p>
+            ) : null}
+            {known?.kind === "proxy" ? (
+              <p className="text-xs text-muted-foreground">
+                {row?.configured
+                  ? "修改只影响新连接，运行中的任务会沿用旧代理。"
+                  : "首次设置会同时启用代理开关（http_proxy_enabled）。"}
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        {error ? (
+          <p
+            role="alert"
+            className="flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
+          >
+            <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+            <span>{error}</span>
+          </p>
+        ) : null}
+      </form>
+    </ModalDialog>
   )
 }

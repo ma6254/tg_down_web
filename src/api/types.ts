@@ -31,6 +31,28 @@ export interface AccountDetail extends Account {
   session_present: boolean
 }
 
+/** 在线资料里的生日；year 为 0 或省略表示对方只公开了月日。 */
+export interface AccountBirthday {
+  day: number
+  month: number
+  year?: number
+}
+
+/** GET /accounts/{id}/live：联网查询到的最新资料与已登录客户端（不落库）。 */
+export interface AccountLiveInfo {
+  /** Telegram 用户 ID，与本地账号记录的 id 无关。 */
+  user_id: number
+  name: string
+  username?: string
+  phone?: string
+  bot?: boolean
+  premium?: boolean
+  about?: string
+  birthday?: AccountBirthday
+  devices: ProbeDevice[]
+  fetched_at: number // Unix 秒
+}
+
 export interface AccountsResponse {
   accounts: Account[]
   current_account_id?: number

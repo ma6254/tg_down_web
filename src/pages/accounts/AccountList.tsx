@@ -1,5 +1,6 @@
 import { LoaderCircleIcon } from "lucide-react"
 import type { Account } from "@/api/types"
+import { AccountAvatar } from "@/components/accounts/AccountAvatar"
 import { accountKindLabels } from "@/lib/account"
 import { maskPhone } from "@/lib/mask"
 import { AccountStateBadge } from "@/pages/accounts/AccountStateBadge"
@@ -218,14 +219,3 @@ function AccountCards({
   )
 }
 
-function AccountAvatar({ name }: { name: string }) {
-  const initial = name.trim().slice(0, 1).toUpperCase() || "?"
-  return (
-    <span
-      aria-hidden="true"
-      className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-medium text-muted-foreground"
-    >
-      {initial}
-    </span>
-  )
-}
