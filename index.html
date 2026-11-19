@@ -1,10 +1,40 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>tg_down_web</title>
+    <meta
+      name="description"
+      content="tg_down — 本地优先的 Telegram 媒体下载工具"
+    />
+    <meta
+      name="theme-color"
+      content="#ffffff"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#0a0a0a"
+      media="(prefers-color-scheme: dark)"
+    />
+    <script>
+      // 在首帧前应用主题，避免暗色模式闪白。storage key 与 ThemeProvider 保持一致。
+      ;(function () {
+        try {
+          var stored = localStorage.getItem("theme")
+          var dark =
+            stored === "dark" ||
+            ((!stored || stored === "system") &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches)
+          document.documentElement.classList.toggle("dark", dark)
+          document.documentElement.style.colorScheme = dark ? "dark" : "light"
+        } catch (_) {
+          /* localStorage 不可用时退回跟随系统 */
+        }
+      })()
+    </script>
+    <title>tg_down · Telegram 下载工具</title>
   </head>
   <body>
     <div id="root"></div>

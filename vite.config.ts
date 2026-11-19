@@ -3,6 +3,9 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+// 开发时后端地址；设置 TG_DOWN_API_URL 可指向另一个实例（例如带 token 的测试端口）。
+const apiTarget = process.env.TG_DOWN_API_URL || 'http://127.0.0.1:22429'
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -16,7 +19,15 @@ export default defineConfig({
     port: 5173,
     // 开发时把 /api 代理到 Go 后端，避免跨域；生产由 Go 同源托管。
     proxy: {
-      '/api': 'http://127.0.0.1:22429',
+      '/api': apiTarget,
+    },
+  },
+  // 预览构建产物时同样代理 /api，便于在后端未托管 dist 时自测。
+  preview: {
+    host: '127.0.0.1',
+    port: 4173,
+    proxy: {
+      '/api': apiTarget,
     },
   },
 })
