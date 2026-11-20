@@ -24,3 +24,13 @@ export function accountSourceLabel(source?: string): string {
   }
   return accountSourceLabels[source] ?? source
 }
+
+/**
+ * 能否从 tg_down 注销该账号。
+ *
+ * 桌面导入的账号与 Telegram Desktop 共用 auth key，注销会连带桌面端退出登录，
+ * 因此服务端拒绝注销（409），前端对这些账号只提供「删除本地副本」。
+ */
+export function canLogout(source?: string): boolean {
+  return source !== "desktop"
+}

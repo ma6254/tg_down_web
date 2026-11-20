@@ -22,6 +22,7 @@ import {
   useLogoutAccount,
   useSelectAccount,
 } from "@/hooks/use-accounts"
+import { canLogout } from "@/lib/account"
 import { AccountDetailDialog } from "@/pages/accounts/AccountDetailDialog"
 import { AccountList } from "@/pages/accounts/AccountList"
 import { AccountSummary } from "@/pages/accounts/AccountSummary"
@@ -61,6 +62,12 @@ export function AccountsPage() {
       return
     }
     const target = logoutTarget
+    // 桌面导入的账号不允许注销（服务端会返回 409），改走删除本地副本。
+    if (!canLogout(target.source)) {
+      setLogoutTarget(null)
+      setDeleteTarget(target)
+      return
+    }
     logout.mutate(target.id, {
       onSuccess: (result) => {
         setLogoutTarget(null)
@@ -178,11 +185,9 @@ export function AccountsPage() {
             setLogoutTarget(null)
           }
         }}
-        title={logoutTarget?.source === "desktop" ? "注销账号" : "退出登录"}
+        title="退出登录"
         description={
-          logoutTarget
-            ? `确定要${logoutTarget.source === "desktop" ? "注销" : "登出"} ${logoutTarget.name} 吗？`
-            : undefined
+          logoutTarget ? `确定要登出 ${logoutTarget.name} 吗？` : undefined
         }
         footer={
           <>
@@ -201,15 +206,14 @@ export function AccountsPage() {
               {logout.isPending ? (
                 <LoaderCircleIcon className="animate-spin" />
               ) : null}
-              {logoutTarget?.source === "desktop" ? "注销" : "登出"}
+              登出
             </Button>
           </>
         }
       >
         <p className="text-sm text-muted-foreground">
-          {logoutTarget?.source === "desktop"
-            ? "桌面导入的账号与 Telegram Desktop 共用登录，注销会同时让桌面端退出登录；本地账号记录与 session 文件也会删除，不可恢复。"
-            : "会向 Telegram 注销该 session，并删除本地账号记录与 session 文件，不可恢复；已下载的文件不受影响。"}
+          会向 Telegram 注销该 session，并删除本地账号记录与 session
+          文件，不可恢复；已下载的文件不受影响。桌面导入的账号不能注销，只能删除本地副本。
         </p>
       </ModalDialog>
 

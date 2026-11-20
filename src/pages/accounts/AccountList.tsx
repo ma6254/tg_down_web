@@ -1,7 +1,7 @@
 import { LoaderCircleIcon } from "lucide-react"
 import type { Account } from "@/api/types"
 import { AccountAvatar } from "@/components/accounts/AccountAvatar"
-import { accountKindLabels, accountSourceLabel } from "@/lib/account"
+import { accountKindLabels, accountSourceLabel, canLogout } from "@/lib/account"
 import { maskPhone } from "@/lib/mask"
 import { AccountStateBadge } from "@/pages/accounts/AccountStateBadge"
 import { Badge } from "@/components/ui/badge"
@@ -167,20 +167,18 @@ function AccountTable({
                         删除
                       </Button>
                     ) : null}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      disabled={selectingId !== null}
-                      title={
-                        account.source === "desktop"
-                          ? "注销会同时让 Telegram Desktop 退出登录"
-                          : undefined
-                      }
-                      onClick={() => onLogout(account)}
-                    >
-                      {account.source === "desktop" ? "注销" : "登出"}
-                    </Button>
+                    {canLogout(account.source) ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={selectingId !== null}
+                        title="向 Telegram 注销该 session，并删除本地记录"
+                        onClick={() => onLogout(account)}
+                      >
+                        登出
+                      </Button>
+                    ) : null}
                   </div>
                 </TableCell>
               </TableRow>
@@ -276,15 +274,17 @@ function AccountCards({
                   删除
                 </Button>
               ) : null}
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                disabled={selectingId !== null}
-                onClick={() => onLogout(account)}
-              >
-                {account.source === "desktop" ? "注销" : "登出"}
-              </Button>
+              {canLogout(account.source) ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  disabled={selectingId !== null}
+                  onClick={() => onLogout(account)}
+                >
+                  登出
+                </Button>
+              ) : null}
             </div>
           </div>
         )
