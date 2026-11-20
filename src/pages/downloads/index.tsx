@@ -38,6 +38,7 @@ import {
 } from "@/lib/download"
 import { chatTypeLabel, commonChat } from "@/lib/chat"
 import { formatBytes, formatDuration } from "@/lib/format"
+import { mediaGallery, type GalleryImage } from "@/lib/gallery"
 import { isMobileDevice } from "@/lib/device"
 import { cn } from "@/lib/utils"
 import { DownloadTasks } from "./DownloadTasks"
@@ -92,12 +93,18 @@ export function DownloadsPage() {
     return map
   }, [downloads.data])
 
-  function enqueue(links: string[]) {
+  /**
+   * 提交下载任务。
+   *
+   * single=true 时后端只下载链接指向的那条消息，不把相册展开成整组，
+   * 供媒体列表里的单行按钮使用；「全部下载」与表单提交保持整组语义。
+   */
+  function enqueue(links: string[], single = false) {
     if (links.length === 0) {
       return
     }
     createDownloads.mutate(
-      { links, overwrite },
+      { links, overwrite, single },
       {
         onSuccess: (result) => {
           const summary = summarizeCreateResult(result)
@@ -396,7 +403,7 @@ export function DownloadsPage() {
                       media={row.media}
                       task={tasksByLink.get(row.link)}
                       busy={createDownloads.isPending}
-                      onDownload={() => enqueue([row.link])}
+                      onDownload={() => enqueue([row.link], true)}
                     />
                   ))}
                 </ul>
@@ -494,17 +501,21 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
       </div>
 
       {gallery.length === 1 ? (
-        <button
-          type="button"
-          onClick={() => setViewerIndex(0)}
-          className="block w-fit max-w-full cursor-zoom-in rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          aria-label={`查看大图：${gallery[0].name}`}
-        >
-          <SmartImage
-            urls={gallery[0].urls}
-            className="max-h-72 w-auto max-w-full rounded-lg border object-contain"
-          />
-        </button>
+        gallery[0].urls.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setViewerIndex(0)}
+            className="block w-fit max-w-full cursor-zoom-in rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            aria-label={`查看大图：${gallery[0].name}`}
+          >
+            <SmartImage
+              urls={gallery[0].urls}
+              className="max-h-72 w-auto max-w-full rounded-lg border object-contain"
+            />
+          </button>
+        ) : (
+          <GalleryPlaceholder image={gallery[0]} />
+        )
       ) : gallery.length > 1 ? (
         <div
           className={cn(
@@ -512,25 +523,44 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
             gallery.length % 2 === 0 ? "grid-cols-2" : "grid-cols-3"
           )}
         >
-          {gallery.map((image, index) => (
-            <button
-              key={image.key}
-              type="button"
-              onClick={() => setViewerIndex(index)}
-              className="relative aspect-[4/3] cursor-zoom-in overflow-hidden rounded-lg border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              aria-label={`查看大图 ${index + 1}：${image.name}`}
-            >
-              <SmartImage
-                urls={image.urls}
-                className="h-full w-full object-cover"
-              />
-              {image.video ? (
-                <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
-                  视频
-                </span>
-              ) : null}
-            </button>
-          ))}
+          {gallery.map((image, index) =>
+            image.urls.length > 0 ? (
+              <button
+                key={image.key}
+                type="button"
+                onClick={() => setViewerIndex(index)}
+                className="relative aspect-[4/3] cursor-zoom-in overflow-hidden rounded-lg border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                aria-label={`查看大图 ${index + 1}：${image.name}`}
+              >
+                <SmartImage
+                  urls={image.urls}
+                  className="h-full w-full object-cover"
+                />
+                {image.video ? (
+                  <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                    {galleryDurationLabel(image)}
+                  </span>
+                ) : null}
+              </button>
+            ) : (
+              <div
+                key={image.key}
+                className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border bg-muted text-muted-foreground"
+                aria-label={`${image.video ? "视频" : "图片"}（无封面）：${image.name}`}
+              >
+                {image.video ? (
+                  <FileVideoIcon className="size-6" />
+                ) : (
+                  <ImageIcon className="size-6" />
+                )}
+                {image.video ? (
+                  <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                    {galleryDurationLabel(image)}
+                  </span>
+                ) : null}
+              </div>
+            )
+          )}
         </div>
       ) : null}
 
@@ -673,13 +703,13 @@ function MediaRow({
             task
               ? `已在下载任务中（${downloadStatusLabel(task.status)}）`
               : media.downloadable
-                ? "加入下载队列"
+                ? "只下载这个文件（相册不会整组展开）"
                 : "超过当前账号的单文件上限"
           }
           aria-label={
             task
               ? `${media.file_name} 已在下载任务中`
-              : `下载 ${media.file_name}`
+              : `只下载 ${media.file_name}`
           }
         >
           <DownloadIcon />
@@ -781,19 +811,9 @@ function splitLinks(raw: string): string[] {
     .filter(Boolean)
 }
 
-interface GalleryImage {
-  key: string
-  /** 候选地址：大图优先，失败退到封面。 */
-  urls: string[]
-  video: boolean
-  name: string
-  size: number
-  mime: string
-}
-
 /**
  * 正文里展示的配图：相册取全部图片/视频封面，单条消息取主媒体。
- * 音频、文档等没有画面，不占正文空间。
+ * 具体规则见 lib/gallery（没有封面的视频也会保留，由页面画占位）。
  */
 function albumGallery(item: PreviewItem): GalleryImage[] {
   const medias = item.medias?.length
@@ -801,32 +821,7 @@ function albumGallery(item: PreviewItem): GalleryImage[] {
     : item.media
       ? [item.media]
       : []
-
-  const out: GalleryImage[] = []
-  medias.forEach((media, index) => {
-    if (media.kind !== "photo" && media.kind !== "video") {
-      return
-    }
-    const urls: string[] = []
-    if (media.preview_url) {
-      urls.push(media.preview_url)
-    }
-    if (media.thumbnail_url && media.thumbnail_url !== media.preview_url) {
-      urls.push(media.thumbnail_url)
-    }
-    if (urls.length === 0) {
-      return
-    }
-    out.push({
-      key: `${media.message_id ?? index}`,
-      urls,
-      video: media.kind === "video",
-      name: media.file_name,
-      size: media.size,
-      mime: media.mime ?? "image/jpeg",
-    })
-  })
-  return out
+  return mediaGallery(medias)
 }
 
 /**
@@ -869,4 +864,25 @@ function mediaKindLabel(kind: MediaKind): string {
     default:
       return "文件"
   }
+}
+
+/** 视频角标文案：有时长显示时长，否则退回「视频」。 */
+function galleryDurationLabel(image: GalleryImage): string {
+  return image.video && image.duration ? formatDuration(image.duration) : "视频"
+}
+
+/** 没有封面时的占位块：视频显示胶片图标与时长，图片显示图片图标。 */
+function GalleryPlaceholder({ image }: { image: GalleryImage }) {
+  const Icon = image.video ? FileVideoIcon : ImageIcon
+  return (
+    <div className="flex w-fit max-w-full flex-col items-center gap-2 rounded-lg border bg-muted px-8 py-10 text-muted-foreground">
+      <Icon className="size-8" />
+      <span className="max-w-full truncate text-xs" title={image.name}>
+        {image.name}
+      </span>
+      {image.video && image.duration ? (
+        <span className="text-[11px]">{formatDuration(image.duration)}</span>
+      ) : null}
+    </div>
+  )
 }

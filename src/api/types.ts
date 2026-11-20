@@ -305,6 +305,11 @@ export interface DownloadCreateRequest {
    * 并丢弃已有 .part 从零下载。
    */
   overwrite?: boolean
+  /**
+   * 为 true 时只下载链接指向的那条消息，不展开相册；
+   * 默认 false 与 CLI 一致：相册链接会创建整组任务。
+   */
+  single?: boolean
 }
 
 /** 因「没有媒体」或「超过单文件上限」被跳过的链接。 */
