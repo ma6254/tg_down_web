@@ -5,4 +5,5 @@ export const queryKeys = {
   account: (id: number) => ["accounts", id] as const,
   accountLive: (id: number) => ["accounts", id, "live"] as const,
   settings: ["settings"] as const,
+  downloads: ["downloads"] as const,
 }

@@ -2,6 +2,7 @@ import { toast } from "sonner"
 import { describeError } from "@/api/client"
 import {
   groupSettingRows,
+  knownSettings,
   settingLabel,
   type SettingRow,
 } from "@/lib/settings"
@@ -84,6 +85,8 @@ function SettingItem({
   onPickAccount: () => void
 }) {
   const editable = row.known && !row.readOnly
+  const known = knownSettings[row.key]
+  const isBoolean = known?.kind === "boolean" && !row.proxy
   const isCurrentAccount = row.key === "current_account_id"
   const label = settingLabel(row)
   const showKey = label !== row.key
@@ -130,7 +133,21 @@ function SettingItem({
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
           {row.proxy ? <ProxyEnabledSwitch row={row} /> : null}
-          {editable ? (
+          {isBoolean ? (
+            <>
+              <BooleanSwitch row={row} />
+              {row.configured ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onClear(row)}
+                >
+                  清除
+                </Button>
+              ) : null}
+            </>
+          ) : null}
+          {!row.proxy && !isBoolean && editable ? (
             <>
               <Button
                 variant="outline"
@@ -203,7 +220,47 @@ function ProxyEnabledSwitch({ row }: { row: SettingRow }) {
   )
 }
 
+/** 通用布尔配置项的行内开关（例如「使用自定义 API」）。 */
+function BooleanSwitch({ row }: { row: SettingRow }) {
+  const update = useUpdateSettings()
+  const checked = row.configured
+    ? row.value === "true"
+    : row.defaultValue === "true"
+
+  function handleChange(next: boolean) {
+    if (update.isPending) {
+      return
+    }
+    update.mutate(
+      { [row.key]: next ? "true" : "false" },
+      {
+        onSuccess: () => {
+          toast.success(`${settingLabel(row)}：${next ? "已启用" : "已关闭"}`)
+        },
+        onError: (err) => toast.error(describeError(err)),
+      }
+    )
+  }
+
+  return (
+    <Switch
+      checked={checked}
+      onCheckedChange={handleChange}
+      disabled={update.isPending}
+      aria-label={settingLabel(row)}
+    />
+  )
+}
+
 function displayValue(row: SettingRow): string {
+  if (knownSettings[row.key]?.kind === "boolean") {
+    if (!row.configured) {
+      return row.defaultValue === "true"
+        ? "未设置（默认启用）"
+        : "未设置（默认关闭）"
+    }
+    return row.value.toLowerCase() === "true" ? "已启用" : "已停用"
+  }
   if (row.key === "current_account_id") {
     return row.value ? `#${row.value}` : "未选择"
   }
@@ -213,5 +270,20 @@ function displayValue(row: SettingRow): string {
   if (row.key === "http_proxy") {
     return maskProxyUrl(row.value)
   }
+  if (row.key === "api_hash") {
+    return maskSecret(row.value)
+  }
   return row.value || "—"
+}
+
+/** 脱敏展示密钥：保留首尾各 4 位。 */
+function maskSecret(value: string): string {
+  const text = value.trim()
+  if (!text) {
+    return "—"
+  }
+  if (text.length <= 8) {
+    return "•".repeat(text.length)
+  }
+  return `${text.slice(0, 4)}${"•".repeat(8)}${text.slice(-4)}`
 }

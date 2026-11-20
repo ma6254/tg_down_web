@@ -149,7 +149,10 @@ export function AccountPickerDialog({
                     disabled && "cursor-not-allowed opacity-60 hover:bg-transparent"
                   )}
                 >
-                  <AccountAvatar name={account.name} />
+                  <AccountAvatar
+                    name={account.name}
+                    src={`/api/v1/accounts/${account.id}/avatar`}
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="truncate text-sm font-medium">

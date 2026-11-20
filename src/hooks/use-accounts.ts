@@ -52,6 +52,28 @@ export function useSelectAccount() {
   })
 }
 
+/** 登出账号；本地记录会删除，成功后刷新列表。 */
+export function useLogoutAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.accounts.logout(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+    },
+  })
+}
+
+/** 只删除本地账号（不动 Telegram 会话），成功后刷新列表。 */
+export function useDeleteAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.accounts.remove(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+    },
+  })
+}
+
 interface ProbeVariables {
   body: ProbeRequest
   signal?: AbortSignal

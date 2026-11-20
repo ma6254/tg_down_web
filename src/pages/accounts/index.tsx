@@ -2,6 +2,7 @@ import { useState } from "react"
 import {
   ArrowLeftRightIcon,
   ImportIcon,
+  LoaderCircleIcon,
   RefreshCwIcon,
   UsersIcon,
 } from "lucide-react"
@@ -9,12 +10,18 @@ import { toast } from "sonner"
 import { describeError } from "@/api/client"
 import type { Account } from "@/api/types"
 import { AccountPickerDialog } from "@/components/accounts/AccountPickerDialog"
+import { ModalDialog } from "@/components/common/ModalDialog"
 import { EmptyState } from "@/components/common/EmptyState"
 import { ErrorState } from "@/components/common/ErrorState"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useAccounts, useSelectAccount } from "@/hooks/use-accounts"
+import {
+  useAccounts,
+  useDeleteAccount,
+  useLogoutAccount,
+  useSelectAccount,
+} from "@/hooks/use-accounts"
 import { AccountDetailDialog } from "@/pages/accounts/AccountDetailDialog"
 import { AccountList } from "@/pages/accounts/AccountList"
 import { AccountSummary } from "@/pages/accounts/AccountSummary"
@@ -24,9 +31,13 @@ import { ProbeDialog } from "@/pages/accounts/ProbeDialog"
 export function AccountsPage() {
   const accountsQuery = useAccounts()
   const select = useSelectAccount()
+  const logout = useLogoutAccount()
+  const remove = useDeleteAccount()
   const [detailId, setDetailId] = useState<number | null>(null)
   const [probeOpen, setProbeOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [logoutTarget, setLogoutTarget] = useState<Account | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Account | null>(null)
 
   const accounts = accountsQuery.data?.accounts ?? []
 
@@ -43,6 +54,38 @@ export function AccountsPage() {
       return
     }
     handleSelect(account)
+  }
+
+  function confirmLogout() {
+    if (!logoutTarget) {
+      return
+    }
+    const target = logoutTarget
+    logout.mutate(target.id, {
+      onSuccess: (result) => {
+        setLogoutTarget(null)
+        if (result.revoked) {
+          toast.success(`已登出 ${target.name}`)
+        } else {
+          toast.warning(`已删除本地账号 ${target.name}，但 Telegram 端注销失败`)
+        }
+      },
+      onError: (error) => toast.error(describeError(error)),
+    })
+  }
+
+  function confirmDelete() {
+    if (!deleteTarget) {
+      return
+    }
+    const target = deleteTarget
+    remove.mutate(target.id, {
+      onSuccess: () => {
+        setDeleteTarget(null)
+        toast.success(`已删除本地账号 ${target.name}`)
+      },
+      onError: (error) => toast.error(describeError(error)),
+    })
   }
 
   return (
@@ -111,6 +154,8 @@ export function AccountsPage() {
             selectingId={select.isPending ? (select.variables ?? null) : null}
             onSelect={handleSelect}
             onDetail={(account) => setDetailId(account.id)}
+            onLogout={setLogoutTarget}
+            onDelete={setDeleteTarget}
           />
         </div>
       )}
@@ -125,6 +170,88 @@ export function AccountsPage() {
         onOpenChange={setPickerOpen}
         onConfirm={handlePickAccount}
       />
+
+      <ModalDialog
+        open={logoutTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !logout.isPending) {
+            setLogoutTarget(null)
+          }
+        }}
+        title={logoutTarget?.source === "desktop" ? "注销账号" : "退出登录"}
+        description={
+          logoutTarget
+            ? `确定要${logoutTarget.source === "desktop" ? "注销" : "登出"} ${logoutTarget.name} 吗？`
+            : undefined
+        }
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setLogoutTarget(null)}
+              disabled={logout.isPending}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmLogout}
+              disabled={logout.isPending}
+            >
+              {logout.isPending ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : null}
+              {logoutTarget?.source === "desktop" ? "注销" : "登出"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          {logoutTarget?.source === "desktop"
+            ? "桌面导入的账号与 Telegram Desktop 共用登录，注销会同时让桌面端退出登录；本地账号记录与 session 文件也会删除，不可恢复。"
+            : "会向 Telegram 注销该 session，并删除本地账号记录与 session 文件，不可恢复；已下载的文件不受影响。"}
+        </p>
+      </ModalDialog>
+
+      <ModalDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !remove.isPending) {
+            setDeleteTarget(null)
+          }
+        }}
+        title="删除账号"
+        description={
+          deleteTarget ? `确定要删除 ${deleteTarget.name} 吗？` : undefined
+        }
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={remove.isPending}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={remove.isPending}
+            >
+              {remove.isPending ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : null}
+              删除
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          只会删除本地账号记录与 session
+          文件，不会注销 Telegram 会话，也不影响 Telegram Desktop
+          的登录；已下载的文件不受影响。
+        </p>
+      </ModalDialog>
     </>
   )
 }

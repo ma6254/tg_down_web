@@ -1,4 +1,4 @@
-import { LogOutIcon, SettingsIcon, UsersIcon } from "lucide-react"
+import { DownloadIcon, LogOutIcon, SettingsIcon, UsersIcon } from "lucide-react"
 import { NavLink } from "react-router-dom"
 import { Brand } from "@/components/layout/Brand"
 import { ThemeToggle } from "@/components/ThemeToggle"
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 
 const navItems = [
   { to: "/accounts", label: "账号", icon: UsersIcon },
+  { to: "/downloads", label: "下载", icon: DownloadIcon },
   { to: "/settings", label: "设置", icon: SettingsIcon },
 ]
 

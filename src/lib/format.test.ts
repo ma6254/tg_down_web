@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { formatBirthday, formatDateTime, formatUptime } from "./format"
+import {
+  formatBirthday,
+  formatBytes,
+  formatDateTime,
+  formatDuration,
+  formatUptime,
+} from "./format"
 
 describe("formatDateTime", () => {
   it("空值与非法值返回占位符", () => {
@@ -46,5 +52,36 @@ describe("formatUptime", () => {
     expect(formatUptime(125)).toBe("2 分 5 秒")
     expect(formatUptime(3725)).toBe("1 小时 2 分")
     expect(formatUptime(93784)).toBe("1 天 2 小时")
+  })
+})
+
+describe("formatBytes", () => {
+  it("非法值返回占位符", () => {
+    expect(formatBytes(undefined)).toBe("—")
+    expect(formatBytes(-1)).toBe("—")
+    expect(formatBytes(Number.NaN)).toBe("—")
+  })
+
+  it("按 1024 进制展示", () => {
+    expect(formatBytes(0)).toBe("0 B")
+    expect(formatBytes(512)).toBe("512 B")
+    expect(formatBytes(1024)).toBe("1.0 KB")
+    expect(formatBytes(1536)).toBe("1.5 KB")
+    expect(formatBytes(324564430)).toBe("309.5 MB")
+    expect(formatBytes(2 * 1024 ** 3)).toBe("2.0 GB")
+  })
+})
+
+describe("formatDuration", () => {
+  it("非法值返回占位符", () => {
+    expect(formatDuration(undefined)).toBe("—")
+    expect(formatDuration(-5)).toBe("—")
+  })
+
+  it("按分钟/小时展示", () => {
+    expect(formatDuration(0)).toBe("0:00")
+    expect(formatDuration(65)).toBe("1:05")
+    expect(formatDuration(820)).toBe("13:40")
+    expect(formatDuration(3723)).toBe("1:02:03")
   })
 })

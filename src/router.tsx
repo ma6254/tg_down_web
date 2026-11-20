@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom"
 import { AuthGate } from "@/components/auth/AuthGate"
 import { AppShell } from "@/components/layout/AppShell"
 import { AccountsPage } from "@/pages/accounts"
+import { DownloadsPage } from "@/pages/downloads"
 import { LoginPage } from "@/pages/login"
 import { NotFoundPage } from "@/pages/not-found"
 import { RouteErrorPage } from "@/pages/route-error"
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/accounts" replace /> },
           { path: "accounts", element: <AccountsPage /> },
+          { path: "downloads", element: <DownloadsPage /> },
           { path: "settings", element: <SettingsPage /> },
           { path: "*", element: <NotFoundPage /> },
         ],

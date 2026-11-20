@@ -39,6 +39,54 @@ export const knownSettings: Record<string, KnownSetting> = {
     kind: "boolean",
     validate: validateBoolean,
   },
+  api_id: {
+    key: "api_id",
+    label: "API ID",
+    description:
+      "自定义 Telegram 应用的 api_id（my.telegram.org 申请）；与 api_hash 需同时配置，不启用时使用内置 desktop 凭据。",
+    placeholder: "例如 123456",
+    defaultValue: "",
+    kind: "text",
+    validate: validateAPIID,
+  },
+  api_hash: {
+    key: "api_hash",
+    label: "API Hash",
+    description:
+      "自定义 Telegram 应用的 api_hash，32 位十六进制；属于敏感信息，页面只显示首尾。",
+    placeholder: "32 位十六进制字符串",
+    defaultValue: "",
+    kind: "text",
+    validate: validateAPIHash,
+  },
+  api_custom_enabled: {
+    key: "api_custom_enabled",
+    label: "使用自定义 API",
+    description:
+      "开启后登录、在线资料与下载都使用 api_id / api_hash；关闭时即使配置了凭据也使用内置 desktop。",
+    placeholder: "false",
+    defaultValue: "false",
+    kind: "boolean",
+    validate: validateBoolean,
+  },
+}
+
+/** api_id 校验：正整数（与服务端 ValidateAPIID 一致）。 */
+export function validateAPIID(raw: string): string | null {
+  const value = raw.trim()
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    return "api_id 必须是正整数"
+  }
+  return null
+}
+
+/** api_hash 校验：32 位十六进制（与服务端 ValidateAPIHash 一致）。 */
+export function validateAPIHash(raw: string): string | null {
+  const value = raw.trim()
+  if (!/^[0-9a-fA-F]{32}$/.test(value)) {
+    return "api_hash 应为 32 位十六进制字符串"
+  }
+  return null
 }
 
 /** 布尔值校验：服务端接受 true / false（大小写不敏感）。 */
@@ -189,7 +237,7 @@ export function settingLabel(row: SettingRow): string {
 }
 
 /** 设置页的语义分组。 */
-export type SettingGroupKey = "network" | "account" | "other"
+export type SettingGroupKey = "network" | "api" | "account" | "other"
 
 export interface SettingGroup {
   key: SettingGroupKey
@@ -198,12 +246,17 @@ export interface SettingGroup {
   rows: SettingRow[]
 }
 
-const groupOrder: SettingGroupKey[] = ["network", "account", "other"]
+const groupOrder: SettingGroupKey[] = ["network", "api", "account", "other"]
 
 const groupMeta: Record<SettingGroupKey, { title: string; description: string }> = {
   network: {
     title: "网络",
     description: "登录与下载使用的出站代理。",
+  },
+  api: {
+    title: "Telegram API",
+    description:
+      "自定义应用凭据；关闭「使用自定义 API」时统一使用内置 desktop。",
   },
   account: {
     title: "账号",
@@ -219,16 +272,20 @@ function groupKeyOf(key: string): SettingGroupKey {
   if (key === PROXY_KEY) {
     return "network"
   }
+  if (key === "api_id" || key === "api_hash" || key === "api_custom_enabled") {
+    return "api"
+  }
   if (key === "current_account_id") {
     return "account"
   }
   return "other"
 }
 
-/** 按语义把配置行分组，空组不返回，顺序固定为 网络 → 账号 → 其他。 */
+/** 按语义把配置行分组，空组不返回，顺序固定为 网络 → API → 账号 → 其他。 */
 export function groupSettingRows(rows: SettingRow[]): SettingGroup[] {
   const buckets: Record<SettingGroupKey, SettingRow[]> = {
     network: [],
+    api: [],
     account: [],
     other: [],
   }

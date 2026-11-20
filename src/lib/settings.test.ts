@@ -4,6 +4,8 @@ import {
   buildSettingRows,
   groupSettingRows,
   settingLabel,
+  validateAPIHash,
+  validateAPIID,
   validateBoolean,
   validateProxyUrl,
 } from "./settings"
@@ -33,6 +35,25 @@ describe("validateBoolean", () => {
   })
 })
 
+describe("validateAPIID", () => {
+  it("只接受正整数", () => {
+    expect(validateAPIID("123456")).toBeNull()
+    expect(validateAPIID("0")).not.toBeNull()
+    expect(validateAPIID("-1")).not.toBeNull()
+    expect(validateAPIID("abc")).not.toBeNull()
+    expect(validateAPIID("")).not.toBeNull()
+  })
+})
+
+describe("validateAPIHash", () => {
+  it("只接受 32 位十六进制", () => {
+    expect(validateAPIHash("a".repeat(32))).toBeNull()
+    expect(validateAPIHash("0123456789abcdef0123456789ABCDEF")).toBeNull()
+    expect(validateAPIHash("a".repeat(31))).not.toBeNull()
+    expect(validateAPIHash("z".repeat(32))).not.toBeNull()
+  })
+})
+
 describe("buildSettingRows", () => {
   const proxy: Setting = {
     key: "http_proxy",
@@ -41,16 +62,26 @@ describe("buildSettingRows", () => {
     description: "出站代理",
   }
 
-  it("缺少配置时只补一条代理占位行，并带默认开关状态", () => {
+  it("缺少配置时补代理与 API 占位行，并带默认开关状态", () => {
     const rows = buildSettingRows([])
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      key: "http_proxy",
+    expect(rows.map((row) => row.key)).toEqual([
+      "api_custom_enabled",
+      "api_hash",
+      "api_id",
+      "http_proxy",
+    ])
+
+    const proxyRow = rows.find((row) => row.key === "http_proxy")
+    expect(proxyRow).toMatchObject({
       configured: false,
       known: true,
       readOnly: false,
       defaultValue: "",
       proxy: { enabled: true, configured: false },
+    })
+    expect(rows.find((row) => row.key === "api_custom_enabled")).toMatchObject({
+      configured: false,
+      defaultValue: "false",
     })
   })
 
@@ -65,8 +96,13 @@ describe("buildSettingRows", () => {
 
     const rows = buildSettingRows([proxy, toggle])
 
-    expect(rows.map((row) => row.key)).toEqual(["http_proxy"])
-    expect(rows[0]).toMatchObject({
+    expect(rows.map((row) => row.key)).toEqual([
+      "api_custom_enabled",
+      "api_hash",
+      "api_id",
+      "http_proxy",
+    ])
+    expect(rows.find((row) => row.key === "http_proxy")).toMatchObject({
       configured: true,
       value: "socks5://127.0.0.1:1080",
       proxy: { enabled: false, configured: true },
@@ -82,9 +118,13 @@ describe("buildSettingRows", () => {
       known: true,
     }
     const rows = buildSettingRows([toggle])
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      key: "http_proxy",
+    expect(rows.map((row) => row.key)).toEqual([
+      "api_custom_enabled",
+      "api_hash",
+      "api_id",
+      "http_proxy",
+    ])
+    expect(rows.find((row) => row.key === "http_proxy")).toMatchObject({
       configured: false,
       proxy: { enabled: false, configured: true },
     })
@@ -99,7 +139,10 @@ describe("buildSettingRows", () => {
       known: true,
     }
     const rows = buildSettingRows([proxy, toggle])
-    expect(rows[0].proxy).toMatchObject({ enabled: false, configured: true })
+    expect(rows.find((row) => row.key === "http_proxy")?.proxy).toMatchObject({
+      enabled: false,
+      configured: true,
+    })
   })
 
   it("保留只读键与未识别键", () => {
@@ -114,14 +157,21 @@ describe("buildSettingRows", () => {
     const rows = buildSettingRows([current, unknown])
 
     expect(rows.map((row) => row.key)).toEqual([
+      "api_custom_enabled",
+      "api_hash",
+      "api_id",
       "current_account_id",
       "foo",
       "http_proxy",
     ])
-    expect(rows[0].readOnly).toBe(true)
-    expect(rows[1].known).toBe(false)
-    expect(rows[2].configured).toBe(false)
-    expect(rows[2].proxy).toBeDefined()
+    expect(rows.find((row) => row.key === "current_account_id")?.readOnly).toBe(
+      true
+    )
+    expect(rows.find((row) => row.key === "foo")?.known).toBe(false)
+
+    const proxyRow = rows.find((row) => row.key === "http_proxy")
+    expect(proxyRow?.configured).toBe(false)
+    expect(proxyRow?.proxy).toBeDefined()
   })
 })
 
@@ -139,29 +189,37 @@ describe("groupSettingRows", () => {
     known: true,
   }
 
-  it("按网络 → 账号 → 其他排序并携带标题", () => {
+  it("按网络 → API → 账号 → 其他排序并携带标题", () => {
     const groups = groupSettingRows(buildSettingRows([current, unknown, proxy]))
 
     expect(groups.map((group) => group.key)).toEqual([
       "network",
+      "api",
       "account",
       "other",
     ])
     expect(groups.map((group) => group.title)).toEqual([
       "网络",
+      "Telegram API",
       "账号",
       "其他配置",
     ])
     expect(groups[0].rows[0].key).toBe("http_proxy")
-    expect(groups[1].rows[0].key).toBe("current_account_id")
-    expect(groups[2].rows[0].key).toBe("foo")
+    expect(groups[1].rows[0].key).toBe("api_custom_enabled")
+    expect(groups[2].rows[0].key).toBe("current_account_id")
+    expect(groups[3].rows[0].key).toBe("foo")
   })
 
   it("空组不返回", () => {
+    // 代理之外还会补 API 占位行，因此只剩网络与 API 两组。
     const groups = groupSettingRows(buildSettingRows([proxy]))
 
-    expect(groups).toHaveLength(1)
-    expect(groups[0]).toMatchObject({ key: "network", rows: [{ key: "http_proxy" }] })
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toMatchObject({
+      key: "network",
+      rows: [{ key: "http_proxy" }],
+    })
+    expect(groups[1].key).toBe("api")
   })
 })
 

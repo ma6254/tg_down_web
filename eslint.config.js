@@ -27,4 +27,17 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  {
+    // PicViewer 是从 NewsGlean 整体移植的图片查看器：缩放/拖拽/适配屏幕
+    // 依赖 ref 同步和「打开时重置」副作用，保持原实现避免交互行为漂移。
+    files: [
+      'src/components/PicViewer/**/*.{ts,tsx}',
+      'src/components/PicViewerMobile/**/*.{ts,tsx}',
+    ],
+    rules: {
+      'react-hooks/refs': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
 ])

@@ -58,3 +58,37 @@ export function formatUptime(totalSeconds?: number): string {
   }
   return `${minutes} 分 ${seconds % 60} 秒`
 }
+
+/** 字节数 → `512 B` / `1.5 KB` / `309.5 MB`；无效值返回 `—`。 */
+export function formatBytes(bytes?: number): string {
+  if (bytes === undefined || !Number.isFinite(bytes) || bytes < 0) {
+    return "—"
+  }
+  if (bytes < 1024) {
+    return `${Math.round(bytes)} B`
+  }
+
+  const units = ["KB", "MB", "GB", "TB"]
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(1)} ${units[unit]}`
+}
+
+/** 秒数 → `13:40` / `1:02:03`；无效值返回 `—`。 */
+export function formatDuration(seconds?: number): string {
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {
+    return "—"
+  }
+  const total = Math.floor(seconds)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const rest = String(total % 60).padStart(2, "0")
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${rest}`
+  }
+  return `${minutes}:${rest}`
+}

@@ -37,7 +37,7 @@ export function AppShell() {
       >
         跳到主要内容
       </a>
-      <Sidebar className="hidden h-svh lg:flex" />
+      <Sidebar className="sticky top-0 hidden h-svh self-start lg:flex" />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenMenu={() => setNavOpen(true)} />
         <main
@@ -55,7 +55,7 @@ export function AppShell() {
         <SheetContent side="left" className="w-72 max-w-[85vw] gap-0 p-0">
           <SheetTitle className="sr-only">导航菜单</SheetTitle>
           <SheetDescription className="sr-only">
-            在账号与设置页面之间切换
+            在账号、下载与设置页面之间切换
           </SheetDescription>
           <Sidebar
             className="h-full w-full border-r-0"
