@@ -16,6 +16,24 @@ export interface Health {
   uptime_seconds: number
 }
 
+/**
+ * GET /api/v1/system：编译期注入的版本信息与运行环境。
+ *
+ * commit / build_time 由构建脚本通过 -ldflags 注入；直接 go build 时
+ * 分别是 none / unknown。
+ */
+export interface SystemInfo {
+  version: string
+  /** git 提交（短哈希或 tag）；未注入时为 none。 */
+  commit: string
+  /** 编译时间，RFC3339；未注入时为 unknown。 */
+  build_time: string
+  go_version: string
+  os: string
+  arch: string
+  uptime_seconds: number
+}
+
 export interface Account {
   id: number
   kind: AccountKind

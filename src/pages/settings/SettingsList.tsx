@@ -2,6 +2,7 @@ import { toast } from "sonner"
 import { describeError } from "@/api/client"
 import {
   groupSettingRows,
+  isEditableRow,
   knownSettings,
   settingLabel,
   type SettingRow,
@@ -84,7 +85,6 @@ function SettingItem({
   onClear: (row: SettingRow) => void
   onPickAccount: () => void
 }) {
-  const editable = row.known && !row.readOnly
   const known = knownSettings[row.key]
   const isBoolean = known?.kind === "boolean" && !row.proxy
   const isCurrentAccount = row.key === "current_account_id"
@@ -147,7 +147,7 @@ function SettingItem({
               ) : null}
             </>
           ) : null}
-          {!row.proxy && !isBoolean && editable ? (
+          {isEditableRow(row) ? (
             <>
               <Button
                 variant="outline"

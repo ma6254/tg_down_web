@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSelectAccount } from "@/hooks/use-accounts"
 import { useAuth } from "@/hooks/use-auth"
-import { useHealthStatus, useSettings } from "@/hooks/use-settings"
+import { useHealthStatus, useSettings, useSystemInfo } from "@/hooks/use-settings"
 import { buildSettingRows, type SettingRow } from "@/lib/settings"
 import { ClearSettingDialog } from "@/pages/settings/ClearSettingDialog"
 import { ServiceInfoCard } from "@/pages/settings/ServiceInfoCard"
@@ -25,6 +25,7 @@ import { SettingsList } from "@/pages/settings/SettingsList"
 export function SettingsPage() {
   const settingsQuery = useSettings()
   const healthQuery = useHealthStatus()
+  const systemQuery = useSystemInfo()
   const select = useSelectAccount()
   const { token } = useAuth()
   const [editing, setEditing] = useState<SettingRow | null>(null)
@@ -34,11 +35,15 @@ export function SettingsPage() {
   const rows = settingsQuery.data
     ? buildSettingRows(settingsQuery.data.settings)
     : []
-  const refreshing = settingsQuery.isFetching || healthQuery.isFetching
+  const refreshing =
+    settingsQuery.isFetching ||
+    healthQuery.isFetching ||
+    systemQuery.isFetching
 
   function refresh() {
     void settingsQuery.refetch()
     void healthQuery.refetch()
+    void systemQuery.refetch()
   }
 
   function handlePickAccount(account: Account) {
@@ -78,12 +83,13 @@ export function SettingsPage() {
         <aside className="order-1 space-y-4 xl:order-2 xl:col-start-2 xl:row-start-1">
           <ServiceInfoCard
             health={healthQuery.data}
+            system={systemQuery.data}
             error={
               healthQuery.error ? describeError(healthQuery.error) : null
             }
             loading={healthQuery.isPending}
             hasToken={Boolean(token)}
-            onRetry={() => void healthQuery.refetch()}
+            onRetry={refresh}
           />
           <SettingsTips />
         </aside>

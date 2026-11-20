@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   formatBirthday,
+  formatBuildTime,
   formatBytes,
   formatDateTime,
   formatDuration,
+  formatRuntime,
   formatUptime,
 } from "./format"
 
@@ -83,5 +85,40 @@ describe("formatDuration", () => {
     expect(formatDuration(65)).toBe("1:05")
     expect(formatDuration(820)).toBe("13:40")
     expect(formatDuration(3723)).toBe("1:02:03")
+  })
+})
+
+describe("formatBuildTime", () => {
+  it("未注入或空值返回占位符", () => {
+    expect(formatBuildTime(undefined)).toBe("—")
+    expect(formatBuildTime("")).toBe("—")
+    expect(formatBuildTime("  ")).toBe("—")
+    expect(formatBuildTime("unknown")).toBe("—")
+  })
+
+  it("RFC3339 转成本地时间，不可解析时原样返回", () => {
+    const at = new Date(2026, 10, 20, 15, 42, 7)
+    expect(formatBuildTime(at.toISOString())).toBe("2026-11-20 15:42")
+    expect(formatBuildTime("2026-11-20T15:42:07+08:00")).toMatch(
+      /^2026-11-20 \d{2}:42$/
+    )
+    expect(formatBuildTime("v1.2.3")).toBe("v1.2.3")
+  })
+})
+
+describe("formatRuntime", () => {
+  it("缺失时返回占位符", () => {
+    expect(formatRuntime(undefined)).toBe("—")
+    expect(formatRuntime({})).toBe("—")
+    expect(formatRuntime({ go_version: "  ", os: "", arch: "" })).toBe("—")
+  })
+
+  it("组合 go 版本与平台", () => {
+    expect(
+      formatRuntime({ go_version: "go1.27.1", os: "windows", arch: "amd64" })
+    ).toBe("go1.27.1 · windows/amd64")
+    // 平台字段不全时只展示能拼出的部分，不出现半截斜杠。
+    expect(formatRuntime({ os: "linux" })).toBe("linux")
+    expect(formatRuntime({ go_version: "go1.27.1" })).toBe("go1.27.1")
   })
 })

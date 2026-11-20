@@ -236,6 +236,19 @@ export function settingLabel(row: SettingRow): string {
   return knownSettings[row.key]?.label ?? extraLabels[row.key] ?? row.key
 }
 
+/**
+ * 该行是否显示「编辑 / 设置」入口。
+ *
+ * 已知且非只读的可写项都可编辑；布尔项用行内开关，不需要对话框。
+ * http_proxy 行额外带启用开关（row.proxy），但地址本身仍要能编辑或首次设置。
+ */
+export function isEditableRow(row: SettingRow): boolean {
+  if (!row.known || row.readOnly) {
+    return false
+  }
+  return knownSettings[row.key]?.kind !== "boolean"
+}
+
 /** 设置页的语义分组。 */
 export type SettingGroupKey = "network" | "api" | "account" | "other"
 

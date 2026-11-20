@@ -3,6 +3,7 @@ import type { Setting } from "@/api/types"
 import {
   buildSettingRows,
   groupSettingRows,
+  isEditableRow,
   settingLabel,
   validateAPIHash,
   validateAPIID,
@@ -237,5 +238,32 @@ describe("settingLabel", () => {
     expect(proxyRow && settingLabel(proxyRow)).toBe("出站代理")
     expect(accountRow && settingLabel(accountRow)).toBe("当前账号")
     expect(unknownRow && settingLabel(unknownRow)).toBe("foo")
+  })
+})
+
+describe("isEditableRow", () => {
+  it("代理行可编辑：地址要能在页面里设置或修改", () => {
+    const rows = buildSettingRows([])
+    const proxyRow = rows.find((row) => row.key === "http_proxy")
+    expect(proxyRow).toBeDefined()
+    expect(isEditableRow(proxyRow!)).toBe(true)
+  })
+
+  it("布尔项用行内开关，不弹编辑框", () => {
+    const rows = buildSettingRows([])
+    const toggle = rows.find((row) => row.key === "api_custom_enabled")
+    expect(toggle).toBeDefined()
+    expect(isEditableRow(toggle!)).toBe(false)
+  })
+
+  it("只读键与未识别键不可编辑", () => {
+    const rows = buildSettingRows([
+      { key: "current_account_id", value: "4", known: true, read_only: true },
+      { key: "legacy_key", value: "x", known: false },
+    ])
+    const readOnly = rows.find((row) => row.key === "current_account_id")
+    const unknown = rows.find((row) => row.key === "legacy_key")
+    expect(isEditableRow(readOnly!)).toBe(false)
+    expect(isEditableRow(unknown!)).toBe(false)
   })
 })

@@ -18,6 +18,7 @@ import type {
   SelectAccountResponse,
   SettingsPatch,
   SettingsResponse,
+  SystemInfo,
 } from "@/api/types"
 
 export interface HealthOptions {
@@ -40,6 +41,13 @@ export const api = {
       timeoutMs: 5_000,
       handleUnauthorized: false,
     })
+  },
+
+  /** 编译期版本信息与运行环境：设置在「服务信息」卡片里展示。 */
+  system: {
+    get(signal?: AbortSignal): Promise<SystemInfo> {
+      return request<SystemInfo>("/system", { signal })
+    },
   },
 
   accounts: {

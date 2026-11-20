@@ -1,21 +1,24 @@
 import { RefreshCwIcon } from "lucide-react"
-import type { Health } from "@/api/types"
+import type { Health, SystemInfo } from "@/api/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatUptime } from "@/lib/format"
+import { formatBuildTime, formatRuntime, formatUptime } from "@/lib/format"
 
 interface ServiceInfoCardProps {
   health?: Health
+  /** 编译期版本信息；老服务端没有 /system 时为 undefined。 */
+  system?: SystemInfo
   error: string | null
   loading: boolean
   hasToken: boolean
   onRetry: () => void
 }
 
-/** 设置页侧栏：health 接口给出的版本、运行时长与鉴权模式。 */
+/** 设置页侧栏：服务状态、版本、编译信息、运行时与鉴权模式。 */
 export function ServiceInfoCard({
   health,
+  system,
   error,
   loading,
   hasToken,
@@ -40,8 +43,16 @@ export function ServiceInfoCard({
       </div>
 
       <dl className="mt-3 space-y-2">
-        <Info label="版本" value={health?.version || "—"} />
-        <Info label="运行时长" value={formatUptime(health?.uptime_seconds)} />
+        <Info label="版本" value={system?.version || health?.version || "—"} />
+        <Info label="提交" value={system?.commit || "—"} mono />
+        <Info label="编译时间" value={formatBuildTime(system?.build_time)} />
+        <Info label="运行环境" value={formatRuntime(system)} mono wrap />
+        <Info
+          label="运行时长"
+          value={formatUptime(
+            system?.uptime_seconds ?? health?.uptime_seconds
+          )}
+        />
         <Info label="鉴权模式" value={hasToken ? "token 鉴权" : "本地免鉴权"} />
         <Info label="接口" value="/api/v1" mono />
       </dl>
@@ -63,19 +74,24 @@ function Info({
   label,
   value,
   mono = false,
+  wrap = false,
 }: {
   label: string
   value: string
   mono?: boolean
+  /** 长值允许换行（如 go 版本 + 平台），默认单行截断。 */
+  wrap?: boolean
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
       <dd
         className={
-          mono
-            ? "truncate text-right font-mono text-sm"
-            : "truncate text-right text-sm font-medium"
+          wrap
+            ? "min-w-0 break-all text-right font-mono text-xs leading-5"
+            : mono
+              ? "truncate text-right font-mono text-sm"
+              : "truncate text-right text-sm font-medium"
         }
         title={value}
       >

@@ -1,5 +1,43 @@
 const pad = (value: number) => String(value).padStart(2, "0")
 
+/**
+ * 构建时间：RFC3339 → 本地 `YYYY-MM-DD HH:mm`。
+ *
+ * 未注入时服务端返回 unknown，原样占位为 `—`；解析不了的字符串原样展示，
+ * 免得把后端的新格式吃掉。
+ */
+export function formatBuildTime(raw?: string): string {
+  const value = (raw ?? "").trim()
+  if (!value || value === "unknown") {
+    return "—"
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/**
+ * 运行环境：`go1.27.1 · windows/amd64`。
+ *
+ * 字段缺失时用占位，避免出现 `go · /` 这种半截展示。
+ */
+export function formatRuntime(info?: {
+  go_version?: string
+  os?: string
+  arch?: string
+}): string {
+  if (!info) {
+    return "—"
+  }
+  const platform = [info.os, info.arch].filter(Boolean).join("/")
+  const parts = [(info.go_version ?? "").trim(), platform].filter(
+    (part) => part.length > 0
+  )
+  return parts.length > 0 ? parts.join(" · ") : "—"
+}
+
 /** 秒级 Unix 时间戳 → 本地 `YYYY-MM-DD HH:mm`；无效值返回 `—`。 */
 export function formatDateTime(unixSeconds?: number): string {
   if (!unixSeconds) {

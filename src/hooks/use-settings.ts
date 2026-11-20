@@ -20,6 +20,21 @@ export function useHealthStatus() {
   })
 }
 
+/**
+ * 编译期版本信息与运行环境。
+ *
+ * 老服务端可能还没有 /system：失败时静默降级（卡片按缺省值展示），
+ * 不重试，避免对 404 反复请求。
+ */
+export function useSystemInfo() {
+  return useQuery({
+    queryKey: queryKeys.system,
+    queryFn: ({ signal }) => api.system.get(signal),
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
 /** 保存配置：服务端返回完整数组，直接回填缓存，不再额外 GET。 */
 export function useUpdateSettings() {
   const queryClient = useQueryClient()
