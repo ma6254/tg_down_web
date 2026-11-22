@@ -483,10 +483,16 @@ function TaskRow({ task, busy, onControl, onCopy, onPreview, onDelete }: TaskRow
   )
 }
 
-/** 任务封面：优先用创建时登记的缩略图，失败或没有时回退到按 ID 的接口。 */
+/** 任务封面：优先用创建时登记的缩略图，失效时回退到按 ID 惰性生成的接口。 */
 function TaskCover({ task }: { task: DownloadTask }) {
-  const [failed, setFailed] = useState(false)
-  const src = task.thumbnail_url ?? `/api/v1/downloads/${task.id}/thumbnail`
+  // token 地址 30 分钟后过期、服务重启后全部失效，历史数据里还可能有重复前缀；
+  // 第一个地址失败就换 /downloads/{id}/thumbnail 重新解析生成，两个都失败才用图标。
+  const sources = [
+    task.thumbnail_url,
+    `/api/v1/downloads/${task.id}/thumbnail`,
+  ].filter((src): src is string => Boolean(src))
+  const [attempt, setAttempt] = useState(0)
+  const src = sources[attempt]
   const Icon =
     task.kind === "photo"
       ? ImageIcon
@@ -496,14 +502,14 @@ function TaskCover({ task }: { task: DownloadTask }) {
           ? FileAudioIcon
           : FileIcon
 
-  if (!failed) {
+  if (src) {
     return (
       <img
         src={src}
         alt=""
         loading="lazy"
         decoding="async"
-        onError={() => setFailed(true)}
+        onError={() => setAttempt((current) => current + 1)}
         className="size-10 shrink-0 rounded-md border bg-muted object-cover"
       />
     )

@@ -447,6 +447,11 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
   const isMobile = useMemo(() => isMobileDevice(), [])
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const viewerImage = viewerIndex === null ? null : gallery[viewerIndex]
+  // 封面加载失败（缩略图 token 过期、网络错误等）时也要有占位，不能留破图。
+  const [brokenCovers, setBrokenCovers] = useState<Set<string>>(new Set())
+  const markCoverBroken = (key: string) =>
+    setBrokenCovers((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
+  const coverBroken = (image: GalleryImage) => brokenCovers.has(image.key)
 
   return (
     <article className="space-y-2 border-b pb-4 last:border-b-0 last:pb-0">
@@ -501,16 +506,17 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
       </div>
 
       {gallery.length === 1 ? (
-        gallery[0].urls.length > 0 ? (
+        gallery[0].urls.length > 0 && !coverBroken(gallery[0]) ? (
           <button
             type="button"
             onClick={() => setViewerIndex(0)}
             className="block w-fit max-w-full cursor-zoom-in rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             aria-label={`查看大图：${gallery[0].name}`}
           >
-            <SmartImage
+            <GalleryThumb
               urls={gallery[0].urls}
               className="max-h-72 w-auto max-w-full rounded-lg border object-contain"
+              onFailed={() => markCoverBroken(gallery[0].key)}
             />
           </button>
         ) : (
@@ -524,7 +530,7 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
           )}
         >
           {gallery.map((image, index) =>
-            image.urls.length > 0 ? (
+            image.urls.length > 0 && !coverBroken(image) ? (
               <button
                 key={image.key}
                 type="button"
@@ -532,9 +538,10 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
                 className="relative aspect-[4/3] cursor-zoom-in overflow-hidden rounded-lg border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 aria-label={`查看大图 ${index + 1}：${image.name}`}
               >
-                <SmartImage
+                <GalleryThumb
                   urls={image.urls}
                   className="h-full w-full object-cover"
+                  onFailed={() => markCoverBroken(image.key)}
                 />
                 {image.video ? (
                   <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
@@ -546,7 +553,9 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
               <div
                 key={image.key}
                 className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border bg-muted text-muted-foreground"
-                aria-label={`${image.video ? "视频" : "图片"}（无封面）：${image.name}`}
+                aria-label={`${image.video ? "视频" : "图片"}（${
+                  image.urls.length === 0 ? "无封面" : "封面加载失败"
+                }）：${image.name}`}
               >
                 {image.video ? (
                   <FileVideoIcon className="size-6" />
@@ -825,18 +834,22 @@ function albumGallery(item: PreviewItem): GalleryImage[] {
 }
 
 /**
- * 带降级的图片：大图加载失败时换封面，全部失败就不渲染。
- * 每条消息/相册成员各一个，互不影响。
+ * 带降级的封面：大图失败退到缩略图；全部失败时通知调用方渲染占位。
+ *
+ * 每条消息/相册成员各一个，互不影响；失败状态由父组件记在 brokenCovers 里，
+ * 这样占位不会随重渲染丢失，也不会出现破图。
  */
-function SmartImage({
+function GalleryThumb({
   urls,
   className,
+  onFailed,
 }: {
   urls: string[]
   className?: string
+  onFailed: () => void
 }) {
-  const [failed, setFailed] = useState(0)
-  const src = urls[failed]
+  const [index, setIndex] = useState(0)
+  const src = urls[index]
   if (!src) {
     return null
   }
@@ -846,7 +859,13 @@ function SmartImage({
       alt=""
       loading="lazy"
       decoding="async"
-      onError={() => setFailed((current) => current + 1)}
+      onError={() => {
+        if (index + 1 < urls.length) {
+          setIndex(index + 1)
+          return
+        }
+        onFailed()
+      }}
       className={className}
     />
   )
