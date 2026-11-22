@@ -4,7 +4,10 @@ Telegram 下载工具的前端：React + TypeScript + Vite + Tailwind CSS，UI �
 
 开发时独立跑 Vite，通过 `/api` 代理访问 Go 后端；发布时 `pnpm build` 产出 `dist/`，由后端 `go:embed` 打进单文件二进制。
 
-> **状态：W4 完成（2026-11-19）**。账号页与设置页均已接入真实接口：账号列表/切换/详情/tdata 导入，服务信息与配置项查看/编辑/清除；W4 补齐响应式、键盘/读屏、页面标题与文档。下一步 W5（依赖后端 chats/messages）。整体规划见 [规划文档](../tg_down_server/doc/plan.md)，前端实施细则见 [前端开发规划](./docs/plan.md)。
+> **状态：W0–W4、W6（下载 + SSE）与 W7 的后端内嵌已完成**。账号页、设置页、下载页均已接入真实接口：
+> 账号列表/切换/详情/tdata 导入/删除，服务信息与配置项查看/编辑/清除，链接解析预览与下载任务（SSE 进度）。
+> 下一步是 W5a–W5c（群 / 频道 / 私聊 / 收藏夹，仿 Telegram Desktop 的会话界面）、W8（监控页）、W9（RSS 订阅入口）、W10（下载草稿）与 W11（下载历史），分别依赖后端 chats/messages、monitors、feeds、downloads/draft 与 downloads/history。
+> 整体规划见 [规划文档](../tg_down_server/doc/plan.md)，前端实施细则见 [前端开发规划](./docs/plan.md)。
 
 ## 技术栈
 
@@ -17,28 +20,32 @@ Telegram 下载工具的前端：React + TypeScript + Vite + Tailwind CSS，UI �
 | 组件 | shadcn 4.23，`base-nova` 风格 + Base UI（`@base-ui/react`），图标用 lucide-react |
 | 路由 | react-router-dom 7，`createBrowserRouter` + SPA fallback |
 | 数据 | TanStack Query 5（服务端状态缓存、失效与重试） |
-| 测试 | Vitest 5（`src/api`、`src/lib` 纯逻辑，Node 环境） |
+| 测试 | Vitest 5（`src/api`、`src/lib`、`src/hooks` 与无 DOM 组件，Node 环境） |
 
 ## 目录结构
 
 ```
 src/
-  api/            # client（token/401/超时）、endpoints、types、query-keys、client.test
+  api/              # client（token/401/超时）、endpoints、types、query-keys、events（SSE）
   components/
-    auth/         # AuthGate / AuthProvider / AuthShell / OfflineScreen / BootSplash
-    common/       # EmptyState / ErrorState
-    layout/       # AppShell / Sidebar / Topbar / PageHeader / Brand
-    ui/           # shadcn 生成的基础组件，勿手改
-  hooks/          # use-auth、use-theme、use-accounts、use-settings
-  lib/            # query-client、theme、format、mask、account、settings、utils
-  pages/          # accounts、settings、登录、404、路由错误
-  router.tsx      # 路由表
-  main.tsx        # Provider 装配
-  index.css       # Tailwind 入口 + shadcn 主题变量
-vite.config.ts    # @ 别名、/api 代理、dev/preview 端口
-vitest.config.ts  # 单元测试配置（Node 环境）
-components.json   # shadcn 配置（style/baseColor/CSS 变量）
-docs/plan.md      # 前端开发规划
+    accounts/       # 账号头像、切换、详情、探测
+    auth/           # AuthGate / AuthProvider / AuthShell / OfflineScreen / BootSplash
+    common/         # EmptyState / ErrorState / ModalDialog / PeerAvatar
+    layout/         # AppShell / Sidebar / Topbar / PageHeader / Brand
+    messages/       # MessageText（正文实体渲染）
+    PicViewer/      # 桌面图片查看器
+    PicViewerMobile/
+    ui/             # shadcn 生成的基础组件，勿手改
+  hooks/            # use-auth、use-theme、use-accounts、use-settings、use-downloads、use-preview-links、use-download-events、use-document-title
+  lib/              # query-client、theme、format、mask、account、settings、chat、download、gallery、rich-text、clipboard、device、utils
+  pages/            # accounts、downloads、settings、登录、404、路由错误
+  router.tsx        # 路由表
+  main.tsx          # Provider 装配
+  index.css         # Tailwind 入口 + shadcn 主题变量
+vite.config.ts      # @ 别名、/api 代理、dev/preview 端口
+vitest.config.ts    # 单元测试配置（Node 环境）
+components.json     # shadcn 配置（style/baseColor/CSS 变量）
+docs/plan.md        # 前端开发规划
 ```
 
 ## 开发
@@ -48,7 +55,7 @@ pnpm install
 pnpm dev            # http://127.0.0.1:5173
 ```
 
-后端未启动时，`/api/*` 会返回 `502`，属正常现象。
+后端未启动时，`/api/*` 会返回 5xx（代理连接被拒），属正常现象。
 
 | 项 | 地址 |
 |---|---|
@@ -64,7 +71,7 @@ pnpm dev            # http://127.0.0.1:5173
 | 后端启动方式 | 前端行为 |
 |---|---|
 | 默认（127.0.0.1、无 `--auth-token`） | health 返回 200，直接进入；侧栏显示「本地免鉴权」 |
-| 带 `--auth-token` 或 `TG_DOWN_TOKEN` | health 返回 401 → 登录页；token 存 `localStorage['tg_down.token']`，刷新免登录 |
+| 带 `--auth-token`（没有环境变量入口） | health 返回 401 → 登录页；token 存 `localStorage['tg_down.token']`，刷新免登录 |
 | 任意请求返回 401 | 清 token、清查询缓存，回登录页并提示 |
 
 token 模式下侧栏底部有「退出登录」。验证 token 流程时不要动现有 22429 实例，另起一个端口：
@@ -87,7 +94,7 @@ Bash 下写作 `TG_DOWN_API_URL=http://127.0.0.1:22430 pnpm dev --port 5175`。
 pnpm build          # tsc --noEmit && vite build → dist/
 pnpm typecheck      # 只做类型检查
 pnpm lint           # eslint
-pnpm test           # vitest（client / format / mask / settings）
+pnpm test           # vitest（api / lib / hooks / 无 DOM 组件）
 pnpm preview        # 本地预览构建产物
 ```
 
@@ -113,11 +120,19 @@ pnpm preview        # 本地预览构建产物
 - [x] 账号页：列表、切换、详情、tdata 导入，补 client/format/mask 单元测试（W2）。
 - [x] 设置页：服务信息、配置查看/编辑/清除、只读/未识别键、代理脱敏（W3）。
 - [x] 响应式与可访问性打磨、文档收尾（W4）。
-- [ ] 会话/消息与下载页（依赖后端接口，W5/W6）。
+- [x] 下载页：链接解析预览、任务列表、SSE 进度与控制（W6）。
+- [x] 后端内嵌前端与单二进制构建（W7，后端完成）。
+- [ ] W5a 会话列表（群/频道/私聊/收藏夹，真实文件夹/归档，后端 chats/folders 未实现）。
+- [ ] W5b 消息流（置顶条、标记已读、分组、分页、虚拟滚动，后端 messages/pinned/read 未实现）。
+- [ ] W5c 媒体与批量下载（相册、信息面板、多选 ≤50 条，后端 downloads/from-messages 未实现）。
+- [ ] 群 / 频道监控页（W8，规划，依赖后端 monitors 接口与 SSE）。
+- [ ] 监控详情 RSS 订阅入口（W9，规划，依赖后端 feeds 接口）。
+- [ ] 下载页输入草稿持久化（W10，规划，依赖后端 downloads/draft 接口）。
+- [ ] 下载页输入历史（W11，规划，依赖后端 downloads/history 接口）。
 
 ## 相关文档
 
 - [整体规划](../tg_down_server/doc/plan.md)
 - [前端开发规划](./docs/plan.md)
-- [API 草案](../tg_down_server/doc/api.md)
+- [API 文档](../tg_down_server/doc/api.md)
 - [参考实现分析](../tg_down_server/doc/reference.md)
