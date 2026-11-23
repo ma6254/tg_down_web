@@ -1,4 +1,5 @@
 import type { Setting } from "@/api/types"
+import { maskProxyUrl, maskSecret } from "@/lib/mask"
 
 export interface KnownSetting {
   key: string
@@ -16,6 +17,10 @@ export interface KnownSetting {
 export const PROXY_KEY = "http_proxy"
 /** 代理开关键；后端 API 仍是独立配置项，只在展示层并入 http_proxy 行。 */
 export const PROXY_ENABLED_KEY = "http_proxy_enabled"
+/** 网页主题键；由「网页设置」卡片使用，不进入通用配置列表。 */
+export const WEB_THEME_KEY = "web_theme"
+/** 网页标题速度开关；由「网页设置」卡片使用，不进入通用配置列表。 */
+export const WEB_TITLE_SPEED_KEY = "web_title_speed"
 
 /** 服务端 config.items 的镜像：只登记可写、需要 UI 辅助的键。 */
 export const knownSettings: Record<string, KnownSetting> = {
@@ -69,6 +74,86 @@ export const knownSettings: Record<string, KnownSetting> = {
     kind: "boolean",
     validate: validateBoolean,
   },
+  download_auto_preview: {
+    key: "download_auto_preview",
+    label: "下载页自动解析",
+    description:
+      "打开下载页且草稿非空时自动解析一次，刷新摘要与封面；关闭后需要手动点「解析预览」。",
+    placeholder: "true",
+    defaultValue: "true",
+    kind: "boolean",
+    validate: validateBoolean,
+  },
+  download_comments: {
+    key: "download_comments",
+    label: "下载评论区",
+    description:
+      "通过下载页创建任务时，频道帖子会同时下载评论区里的媒体文件；最多读取前 500 条评论、下载前 100 个评论媒体。单条媒体下载不会展开评论区。",
+    placeholder: "false",
+    defaultValue: "false",
+    kind: "boolean",
+    validate: validateBoolean,
+  },
+  download_expand_text_links: {
+    key: "download_expand_text_links",
+    label: "展开正文里的链接",
+    description:
+      "解析消息时展开正文里的文字链接（只展开一层）；下载页的「展开正文里的链接」开关与这里是同一项。",
+    placeholder: "false",
+    defaultValue: "false",
+    kind: "boolean",
+    validate: validateBoolean,
+  },
+  download_overwrite: {
+    key: "download_overwrite",
+    label: "下载覆盖文件",
+    description:
+      "下载时直接替换同名文件并丢弃已有 .part 从零下载；下载页的「覆盖同名文件」开关与这里是同一项。",
+    placeholder: "false",
+    defaultValue: "false",
+    kind: "boolean",
+    validate: validateBoolean,
+  },
+  download_workers: {
+    key: "download_workers",
+    label: "下载并行文件数",
+    description:
+      "同时下载的文件数（1-8）；运行中修改对新任务生效，对应启动参数 --max-concurrency。",
+    placeholder: "1",
+    defaultValue: "1",
+    kind: "text",
+    validate: validateDownloadCount,
+  },
+  download_threads: {
+    key: "download_threads",
+    label: "下载并行线程数",
+    description:
+      "单个文件的分块下载线程数（1-8）；调大可能更容易触发 Telegram 限流，建议不超过 4。",
+    placeholder: "4",
+    defaultValue: "4",
+    kind: "text",
+    validate: validateDownloadCount,
+  },
+  web_theme: {
+    key: WEB_THEME_KEY,
+    label: "网页主题",
+    description:
+      "网页主题：light（浅色）/ dark（深色）/ system（跟随系统）。",
+    placeholder: "system",
+    defaultValue: "system",
+    kind: "text",
+    validate: validateWebTheme,
+  },
+  web_title_speed: {
+    key: WEB_TITLE_SPEED_KEY,
+    label: "网页标题速度显示",
+    description:
+      "开启后在浏览器标签标题中显示当前总下载速度；没有运行中的任务时恢复普通标题。",
+    placeholder: "false",
+    defaultValue: "false",
+    kind: "boolean",
+    validate: validateBoolean,
+  },
 }
 
 /** api_id 校验：正整数（与服务端 ValidateAPIID 一致）。 */
@@ -95,6 +180,26 @@ export function validateBoolean(raw: string): string | null {
   return normalized === "true" || normalized === "false"
     ? null
     : "只接受 true 或 false"
+}
+
+/** 网页主题校验：light / dark / system。 */
+export function validateWebTheme(raw: string): string | null {
+  const normalized = raw.trim().toLowerCase()
+  return normalized === "light" ||
+    normalized === "dark" ||
+    normalized === "system"
+    ? null
+    : "只接受 light / dark / system"
+}
+
+/** 下载并发数（并行文件数 / 线程数）校验：1-8 的整数。 */
+export function validateDownloadCount(raw: string): string | null {
+  const value = raw.trim()
+  if (!/^\d+$/.test(value)) {
+    return "必须是 1-8 的整数"
+  }
+  const count = Number(value)
+  return count >= 1 && count <= 8 ? null : "必须是 1-8 的整数"
 }
 
 /** 代理地址校验：与服务端 ValidateProxy 保持一致，前端只做即时提示。 */
@@ -156,8 +261,12 @@ export function buildSettingRows(settings: Setting[]): SettingRow[] {
 
   const rows: SettingRow[] = []
   for (const setting of settings) {
-    // 开关并入 http_proxy 行，不再单独展示。
-    if (setting.key === PROXY_ENABLED_KEY) {
+    // 开关并入 http_proxy 行；网页主题/标题速度由「网页设置」卡片单独展示。
+    if (
+      setting.key === PROXY_ENABLED_KEY ||
+      setting.key === WEB_THEME_KEY ||
+      setting.key === WEB_TITLE_SPEED_KEY
+    ) {
       continue
     }
     rows.push({
@@ -174,7 +283,12 @@ export function buildSettingRows(settings: Setting[]): SettingRow[] {
 
   const present = new Set(rows.map((row) => row.key))
   for (const item of Object.values(knownSettings)) {
-    if (item.key === PROXY_ENABLED_KEY || present.has(item.key)) {
+    if (
+      item.key === PROXY_ENABLED_KEY ||
+      item.key === WEB_THEME_KEY ||
+      item.key === WEB_TITLE_SPEED_KEY ||
+      present.has(item.key)
+    ) {
       continue
     }
     rows.push({
@@ -226,6 +340,21 @@ function parseBool(raw: string, fallback: boolean): boolean {
   return fallback
 }
 
+/** 从配置数组读取布尔项；缺失或非法时返回 fallback。 */
+export function settingBool(
+  settings: Setting[] | undefined,
+  key: string,
+  fallback = false
+): boolean {
+  const setting = settings?.find((item) => item.key === key)
+  return setting ? parseBool(setting.value, fallback) : fallback
+}
+
+/** 行内开关的当前值：未配置时取服务端默认值。 */
+export function settingSwitchChecked(row: SettingRow): boolean {
+  return row.configured ? row.value === "true" : row.defaultValue === "true"
+}
+
 /** knownSettings 之外的展示标题（只读键等）。 */
 const extraLabels: Record<string, string> = {
   current_account_id: "当前账号",
@@ -249,8 +378,38 @@ export function isEditableRow(row: SettingRow): boolean {
   return knownSettings[row.key]?.kind !== "boolean"
 }
 
+/**
+ * 配置行的展示值。
+ *
+ * 布尔项显示启用状态（未配置时说明默认值）；当前账号显示 #id；
+ * 代理地址与 api_hash 先脱敏；未配置的键给出可读占位。
+ */
+export function formatSettingValue(row: SettingRow): string {
+  if (knownSettings[row.key]?.kind === "boolean") {
+    if (!row.configured) {
+      return row.defaultValue === "true"
+        ? "未设置（默认启用）"
+        : "未设置（默认关闭）"
+    }
+    return row.value.toLowerCase() === "true" ? "已启用" : "已停用"
+  }
+  if (row.key === "current_account_id") {
+    return row.value ? `#${row.value}` : "未选择"
+  }
+  if (!row.configured) {
+    return row.key === PROXY_KEY ? "未配置（直连）" : "未配置"
+  }
+  if (row.key === PROXY_KEY) {
+    return maskProxyUrl(row.value)
+  }
+  if (row.key === "api_hash") {
+    return maskSecret(row.value)
+  }
+  return row.value || "—"
+}
+
 /** 设置页的语义分组。 */
-export type SettingGroupKey = "network" | "api" | "account" | "other"
+export type SettingGroupKey = "network" | "download" | "api" | "account" | "other"
 
 export interface SettingGroup {
   key: SettingGroupKey
@@ -259,12 +418,23 @@ export interface SettingGroup {
   rows: SettingRow[]
 }
 
-const groupOrder: SettingGroupKey[] = ["network", "api", "account", "other"]
+const groupOrder: SettingGroupKey[] = [
+  "network",
+  "download",
+  "api",
+  "account",
+  "other",
+]
 
 const groupMeta: Record<SettingGroupKey, { title: string; description: string }> = {
   network: {
     title: "网络",
     description: "登录与下载使用的出站代理。",
+  },
+  download: {
+    title: "下载配置",
+    description:
+      "下载队列的并发、覆盖策略、评论区下载，以及下载页的解析与自动预览行为。",
   },
   api: {
     title: "Telegram API",
@@ -285,6 +455,9 @@ function groupKeyOf(key: string): SettingGroupKey {
   if (key === PROXY_KEY) {
     return "network"
   }
+  if (key.startsWith("download_")) {
+    return "download"
+  }
   if (key === "api_id" || key === "api_hash" || key === "api_custom_enabled") {
     return "api"
   }
@@ -294,10 +467,11 @@ function groupKeyOf(key: string): SettingGroupKey {
   return "other"
 }
 
-/** 按语义把配置行分组，空组不返回，顺序固定为 网络 → API → 账号 → 其他。 */
+/** 按语义把配置行分组，空组不返回，顺序固定为 网络 → 下载 → API → 账号 → 其他。 */
 export function groupSettingRows(rows: SettingRow[]): SettingGroup[] {
   const buckets: Record<SettingGroupKey, SettingRow[]> = {
     network: [],
+    download: [],
     api: [],
     account: [],
     other: [],

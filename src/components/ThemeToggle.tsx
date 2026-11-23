@@ -1,6 +1,8 @@
-import { CheckIcon, MonitorIcon, MoonIcon, SunIcon, type LucideIcon } from "lucide-react"
+import { CheckIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useTheme, type Theme } from "@/hooks/use-theme"
+import { useTheme } from "@/hooks/use-theme"
+import { useSetWebTheme } from "@/hooks/use-web-theme"
+import { THEME_OPTIONS } from "@/lib/theme-options"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,22 +10,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-interface ThemeOption {
-  value: Theme
-  label: string
-  icon: LucideIcon
-}
-
-const themes: ThemeOption[] = [
-  { value: "light", label: "浅色", icon: SunIcon },
-  { value: "dark", label: "深色", icon: MoonIcon },
-  { value: "system", label: "跟随系统", icon: MonitorIcon },
-]
-
 /** 主题切换：浅色 / 深色 / 跟随系统。 */
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
-  const current = themes.find((item) => item.value === theme) ?? themes[2]
+  const { theme } = useTheme()
+  const { setTheme } = useSetWebTheme()
+  const current =
+    THEME_OPTIONS.find((item) => item.value === theme) ??
+    THEME_OPTIONS[THEME_OPTIONS.length - 1]
   const Icon = current.icon
 
   return (
@@ -40,7 +33,7 @@ export function ThemeToggle() {
         <Icon className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-36">
-        {themes.map(({ value, label, icon: ItemIcon }) => (
+        {THEME_OPTIONS.map(({ value, label, icon: ItemIcon }) => (
           <DropdownMenuItem key={value} onClick={() => setTheme(value)}>
             <ItemIcon />
             <span>{label}</span>

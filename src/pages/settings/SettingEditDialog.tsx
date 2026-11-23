@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react"
-import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react"
+import { LoaderCircleIcon } from "lucide-react"
 import { toast } from "sonner"
 import { describeError } from "@/api/client"
 import { knownSettings, type SettingRow } from "@/lib/settings"
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useUpdateSettings } from "@/hooks/use-settings"
+import { SettingError } from "@/pages/settings/SettingError"
 
 interface SettingEditDialogProps {
   row: SettingRow | null
@@ -64,7 +65,8 @@ export function SettingEditDialog({ row, onClose }: SettingEditDialogProps) {
     <ModalDialog
       open={row !== null}
       onOpenChange={(open) => {
-        if (!open) {
+        // 写入在途时不允许关闭：请求失败还要把错误留在弹窗里展示。
+        if (!open && !update.isPending) {
           onClose()
         }
       }}
@@ -78,7 +80,12 @@ export function SettingEditDialog({ row, onClose }: SettingEditDialogProps) {
       size="md"
       footer={
         <>
-          <Button variant="outline" type="button" onClick={onClose}>
+          <Button
+            variant="outline"
+            type="button"
+            onClick={onClose}
+            disabled={update.isPending}
+          >
             取消
           </Button>
           <Button type="submit" form="setting-form" disabled={update.isPending}>
@@ -136,15 +143,7 @@ export function SettingEditDialog({ row, onClose }: SettingEditDialogProps) {
           </div>
         )}
 
-        {error ? (
-          <p
-            role="alert"
-            className="flex items-start gap-1.5 whitespace-pre-wrap break-words rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
-          >
-            <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>{error}</span>
-          </p>
-        ) : null}
+        {error ? <SettingError message={error} /> : null}
       </form>
     </ModalDialog>
   )

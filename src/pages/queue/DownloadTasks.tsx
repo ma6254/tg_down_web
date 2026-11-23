@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import {
   CopyIcon,
   DownloadIcon,
+  ExternalLinkIcon,
   FileAudioIcon,
   FileIcon,
   FileVideoIcon,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { describeError } from "@/api/client"
+import { downloadFileUrl } from "@/api/endpoints"
 import type { DownloadAction, DownloadStatus, DownloadTask } from "@/api/types"
 import { PicViewerDialog } from "@/components/PicViewer"
 import { PicViewerMobileDialog } from "@/components/PicViewerMobile"
@@ -31,9 +33,12 @@ import {
   useDownloads,
 } from "@/hooks/use-downloads"
 import { useDownloadEvents } from "@/hooks/use-download-events"
+import { useSmoothedTaskSpeeds } from "@/hooks/use-smoothed-task-speeds"
 import {
+  SPEED_SMOOTH_WINDOW_MS,
   downloadEta,
   downloadPercent,
+  downloadPreviewSources,
   downloadStatusLabel,
   downloadStatusVariant,
 } from "@/lib/download"
@@ -52,6 +57,14 @@ const FILTERS = [
 ] as const
 
 type FilterValue = (typeof FILTERS)[number]["value"]
+
+interface ImageViewerState {
+  task: DownloadTask
+  /** 候选地址：大图 → 封面 → 按任务 ID 惰性生成的兜底接口。 */
+  sources: string[]
+  /** 当前尝试的地址下标。 */
+  index: number
+}
 
 const ACTION_LABELS: Record<DownloadAction, string> = {
   pause: "已暂停",
@@ -74,10 +87,11 @@ export function DownloadTasks() {
   const [filter, setFilter] = useState<FilterValue>("all")
   const [deleteTarget, setDeleteTarget] = useState<DownloadTask | null>(null)
   const [deleteFile, setDeleteFile] = useState(false)
-  const [viewerTask, setViewerTask] = useState<DownloadTask | null>(null)
+  const [viewer, setViewer] = useState<ImageViewerState | null>(null)
   const isMobile = useMemo(() => isMobileDevice(), [])
 
   const tasks = downloads.data ?? []
+  const smoothedSpeeds = useSmoothedTaskSpeeds(tasks)
   const counts = countByStatus(tasks)
   const visible =
     filter === "all" ? tasks : tasks.filter((task) => task.status === filter)
@@ -106,7 +120,24 @@ export function DownloadTasks() {
     if (task.kind !== "photo") {
       return
     }
-    setViewerTask(task)
+    setViewer({
+      task,
+      sources: imageViewerSources(task),
+      index: 0,
+    })
+  }
+
+  /** 当前地址加载失败时切到下一张候选；全部失败后保留最后一张的 alt 提示。 */
+  function handleViewerImageError(failedSrc: string) {
+    setViewer((current) => {
+      if (!current || current.sources[current.index] !== failedSrc) {
+        return current
+      }
+      const next = current.index + 1
+      return next < current.sources.length
+        ? { ...current, index: next }
+        : current
+    })
   }
 
   function confirmDelete() {
@@ -193,7 +224,7 @@ export function DownloadTasks() {
             <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
               {downloads.isPending
                 ? "正在加载任务…"
-                : "还没有下载任务：解析链接后，在「媒体文件」里点下载，或直接点「全部下载」。"}
+                : "还没有下载任务：先在「下载」页解析链接，再点媒体行的「下载」或「全部下载」。"}
             </p>
           </div>
         ) : (
@@ -230,6 +261,7 @@ export function DownloadTasks() {
                     <TaskRow
                       key={task.id}
                       task={task}
+                      displaySpeed={smoothedSpeeds[task.id] ?? task.speed}
                       busy={control.isPending || remove.isPending}
                       onControl={handleControl}
                       onCopy={handleCopy}
@@ -289,43 +321,37 @@ export function DownloadTasks() {
         </div>
       </ModalDialog>
 
-      {viewerTask ? (
+      {viewer ? (
         isMobile ? (
           <PicViewerMobileDialog
             open
             onOpenChange={(next) => {
               if (!next) {
-                setViewerTask(null)
+                setViewer(null)
               }
             }}
-            src={
-              viewerTask.preview_url ??
-              viewerTask.thumbnail_url ??
-              `/api/v1/downloads/${viewerTask.id}/thumbnail`
-            }
-            alt={viewerTask.file_name}
-            title={viewerTask.file_name}
-            filePath={viewerTask.file_name}
-            size={viewerTask.file_size}
-            blobType={viewerTask.mime ?? "image/jpeg"}
+            src={viewer.sources[viewer.index]}
+            alt={viewer.task.file_name}
+            title={viewer.task.file_name}
+            filePath={viewer.task.file_name}
+            size={viewer.task.file_size}
+            blobType={viewer.task.mime ?? "image/jpeg"}
+            onImageError={handleViewerImageError}
           />
         ) : (
           <PicViewerDialog
             open
             onOpenChange={(next) => {
               if (!next) {
-                setViewerTask(null)
+                setViewer(null)
               }
             }}
-            src={
-              viewerTask.preview_url ??
-              viewerTask.thumbnail_url ??
-              `/api/v1/downloads/${viewerTask.id}/thumbnail`
-            }
-            alt={viewerTask.file_name}
-            filePath={viewerTask.file_name}
-            blobSize={viewerTask.file_size}
-            blobType={viewerTask.mime ?? "image/jpeg"}
+            src={viewer.sources[viewer.index]}
+            alt={viewer.task.file_name}
+            filePath={viewer.task.file_name}
+            blobSize={viewer.task.file_size}
+            blobType={viewer.task.mime ?? "image/jpeg"}
+            onImageError={handleViewerImageError}
           />
         )
       ) : null}
@@ -335,6 +361,8 @@ export function DownloadTasks() {
 
 interface TaskRowProps {
   task: DownloadTask
+  /** 最近 10 秒平均速度；任务行展示与 ETA 都使用它。 */
+  displaySpeed: number
   busy: boolean
   onControl: (task: DownloadTask, action: DownloadAction) => void
   onCopy: (task: DownloadTask) => void
@@ -342,13 +370,33 @@ interface TaskRowProps {
   onDelete: (task: DownloadTask) => void
 }
 
-function TaskRow({ task, busy, onControl, onCopy, onPreview, onDelete }: TaskRowProps) {
+function TaskRow({
+  task,
+  displaySpeed,
+  busy,
+  onControl,
+  onCopy,
+  onPreview,
+  onDelete,
+}: TaskRowProps) {
   const percent = downloadPercent(task)
-  const eta = downloadEta(task)
+  const eta = downloadEta(task, displaySpeed)
   const running = task.status === "running"
   const showProgress =
     running || task.status === "pending" || task.status === "paused"
   const canPreview = task.kind === "photo"
+  const canDownload = task.status === "done" && Boolean(task.save_path)
+
+  // 用临时 <a download> 触发保存：直接打开新标签页时，图片/视频会被
+  // 服务端 inline 展示，下载按钮需要强制走下载。
+  function handleDownload() {
+    const anchor = document.createElement("a")
+    anchor.href = downloadFileUrl(task.id)
+    anchor.download = task.file_name
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+  }
 
   return (
     <li
@@ -435,6 +483,20 @@ function TaskRow({ task, busy, onControl, onCopy, onPreview, onDelete }: TaskRow
           <Button
             variant="outline"
             size="icon-sm"
+            disabled={!canDownload}
+            onClick={handleDownload}
+            title={canDownload ? "下载文件" : "下载完成后可下载"}
+            aria-label={
+              canDownload
+                ? `下载 ${task.file_name}`
+                : `${task.file_name} 尚未下载完成，无法下载`
+            }
+          >
+            <DownloadIcon />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
             onClick={() => onCopy(task)}
             title="复制源链接"
             aria-label={`复制 ${task.file_name} 的源链接`}
@@ -461,9 +523,15 @@ function TaskRow({ task, busy, onControl, onCopy, onPreview, onDelete }: TaskRow
             <span>
               {formatBytes(task.offset)} / {formatBytes(task.file_size)}（{percent}%）
             </span>
-            <span>
-              {running && task.speed > 0
-                ? `${formatBytes(task.speed)}/s${eta !== null ? ` · 剩余 ${formatDuration(eta)}` : ""}`
+            <span
+              title={
+                running
+                  ? `速度与剩余时间按最近 ${SPEED_SMOOTH_WINDOW_MS / 1000} 秒平均速度计算`
+                  : undefined
+              }
+            >
+              {running && displaySpeed > 0
+                ? `${formatBytes(displaySpeed)}/s${eta !== null ? ` · 剩余 ${formatDuration(eta)}` : ""}`
                 : downloadStatusLabel(task.status)}
             </span>
           </div>
@@ -475,9 +543,20 @@ function TaskRow({ task, busy, onControl, onCopy, onPreview, onDelete }: TaskRow
       ) : null}
 
       {task.status === "done" && task.save_path ? (
-        <p className="truncate text-xs text-muted-foreground" title={task.save_path}>
-          已保存到 {task.save_path}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate" title={task.save_path}>
+            已保存到 {task.save_path}
+          </span>
+          <a
+            href={downloadFileUrl(task.id)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground underline underline-offset-2 hover:text-primary"
+          >
+            {fileActionLabel(task)}
+            <ExternalLinkIcon className="size-3" aria-hidden="true" />
+          </a>
+        </div>
       ) : null}
     </li>
   )
@@ -523,6 +602,32 @@ function TaskCover({ task }: { task: DownloadTask }) {
       <Icon className="size-4" />
     </span>
   )
+}
+
+/**
+ * 图片查看器的候选地址：已完成任务优先用原图，加载失败再退回
+ * preview → thumbnail → 按任务 ID 的封面接口。
+ */
+function imageViewerSources(task: DownloadTask): string[] {
+  const sources = downloadPreviewSources(task)
+  if (task.status === "done" && task.save_path) {
+    sources.unshift(downloadFileUrl(task.id))
+  }
+  return Array.from(new Set(sources))
+}
+
+/** 已完成任务的打开方式：图片看原图，音视频播放，其余下载。 */
+function fileActionLabel(task: DownloadTask): string {
+  switch (task.kind) {
+    case "photo":
+      return "查看原图"
+    case "video":
+      return "播放视频"
+    case "audio":
+      return "播放音频"
+    default:
+      return "下载文件"
+  }
 }
 
 /** 会话 · 类型 · 大小。 */

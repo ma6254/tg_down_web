@@ -44,6 +44,8 @@ export interface PicViewerDialogProps {
   onNext?: () => void
   hasPrev?: boolean
   hasNext?: boolean
+  /** 图片加载失败时回调，调用方可切换到下一张候选地址。 */
+  onImageError?: (src: string) => void
 }
 
 export interface PicViewerDesktopProps {
@@ -158,6 +160,7 @@ function PicViewerDialog({
   onNext,
   hasPrev = false,
   hasNext = false,
+  onImageError,
 }: PicViewerDialogProps) {
   // 预览变换状态
   const [scale, setScale] = useState(1)
@@ -503,18 +506,8 @@ function PicViewerDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/45 backdrop-blur-sm" />
-        <DialogPrimitive.Popup
-          className="fixed left-1/2 z-50 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/15 shadow-[0_24px_80px_rgba(0,0,0,0.32)] outline-none"
-          style={{
-            top: '10vh',
-            width: '96vw',
-            height: '80vh',
-            background: 'rgba(31, 31, 31, 0.72)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-          }}
-        >
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/80" />
+        <DialogPrimitive.Popup className="fixed inset-0 z-50 overflow-hidden bg-[#0b0b0b] outline-none">
           <DialogPrimitive.Title className="sr-only">图片查看器</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">图片预览与操作</DialogPrimitive.Description>
 
@@ -733,6 +726,7 @@ function PicViewerDialog({
                       scheduleFitToView()
                     }
                   }}
+                  onError={() => onImageError?.(imageUrl)}
                   style={{
                     transform: `translate(${translateX}px, ${translateY}px) rotate(${rotation}deg) scale(${flipX ? -scale : scale}, ${flipY ? -scale : scale})`,
                     filter: invert ? 'invert(1)' : 'none',

@@ -1,60 +1,127 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   DownloadIcon,
+  ExternalLinkIcon,
   FileIcon,
+  FileJsonIcon,
   FileVideoIcon,
+  HistoryIcon,
   ImageIcon,
   Loader2Icon,
+  MessageCircleIcon,
   MessageSquareTextIcon,
+  RefreshCwIcon,
   SearchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
+import { api, downloadFileUrl } from "@/api/endpoints"
 import { describeError } from "@/api/client"
 import type {
+  DownloadHistoryEntry,
   DownloadTask,
-  MediaKind,
   PreviewChat,
   PreviewItem,
   PreviewMedia,
 } from "@/api/types"
+import { JsonViewerDialog } from "@/components/common/JsonViewerDialog"
+import { ModalDialog } from "@/components/common/ModalDialog"
 import { PeerAvatar } from "@/components/common/PeerAvatar"
 import { PicViewerDialog } from "@/components/PicViewer"
 import { PicViewerMobileDialog } from "@/components/PicViewerMobile"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { MessageText } from "@/components/messages/MessageText"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useCreateDownloads, useDownloads } from "@/hooks/use-downloads"
+import { useDownloadDraft } from "@/hooks/use-download-draft"
+import {
+  useClearDownloadHistory,
+  useDeleteDownloadHistory,
+  useDownloadHistory,
+  useRecordDownloadHistory,
+} from "@/hooks/use-download-history"
 import { usePreviewLinks } from "@/hooks/use-preview-links"
+import { useSettings, useUpdateSettings } from "@/hooks/use-settings"
 import {
   downloadStatusLabel,
   downloadStatusVariant,
+  mediaKindLabel,
   summarizeCreateResult,
 } from "@/lib/download"
+import { draftCacheFromPreview, formatCacheSummary } from "@/lib/draft"
+import { settingBool } from "@/lib/settings"
 import { chatTypeLabel, commonChat } from "@/lib/chat"
+import { commentButtonLabel } from "@/lib/comments"
 import { formatBytes, formatDuration } from "@/lib/format"
 import { mediaGallery, type GalleryImage } from "@/lib/gallery"
 import { isMobileDevice } from "@/lib/device"
 import { cn } from "@/lib/utils"
-import { DownloadTasks } from "./DownloadTasks"
+import { DownloadHistoryPanel } from "./DownloadHistoryPanel"
+import { CommentsDialog } from "./CommentsDialog"
 
 /**
- * 下载页：链接输入、解析结果预览与任务列表。
+ * 下载页：链接输入与解析结果预览。
  *
  * 解析走 POST /api/v1/links/preview，只读；下载任务由 POST /api/v1/downloads
- * 创建后在后台执行，进度通过 SSE 推送。
+ * 创建后在后台执行，任务列表、进度与控制在「下载队列」页查看。
  */
 export function DownloadsPage() {
-  const [links, setLinks] = useState("")
-  const [expand, setExpand] = useState(false)
-  const [overwrite, setOverwrite] = useState(false)
+  // 输入草稿：挂载时恢复，变化时自动保存；历史是独立的最近解析批次。
+  const draft = useDownloadDraft()
+  const {
+    links,
+    cache,
+    ready: draftReady,
+    restored: draftRestored,
+    status: draftStatus,
+    setLinks,
+    setCache,
+    applyHistory,
+    clearDraft,
+    retrySave,
+  } = draft
+
+  // 两个开关都是全局配置，不在草稿里。
+  const settings = useSettings()
+  const updateSettings = useUpdateSettings()
+  const settingsRows = settings.data?.settings
+  const overwrite = settingBool(settingsRows, "download_overwrite")
+  const expand = settingBool(settingsRows, "download_expand_text_links")
+  const autoPreview = settingBool(settingsRows, "download_auto_preview", true)
+  function saveSwitch(key: string, value: boolean) {
+    updateSettings.mutate(
+      { [key]: value ? "true" : "false" },
+      { onError: (error) => toast.error(describeError(error)) }
+    )
+  }
+  const [historyOpen, setHistoryOpen] = useState(false)
+  // 正文卡片的「JSON」查看器；展示解析接口返回的消息原文。
+  const [jsonOpen, setJsonOpen] = useState(false)
+  // 评论弹窗：非 null 时打开，评论区按需加载。
+  const [commentsItem, setCommentsItem] = useState<PreviewItem | null>(null)
+  const history = useDownloadHistory()
+  const recordHistory = useRecordDownloadHistory()
+  const deleteHistory = useDeleteDownloadHistory()
+  const clearHistory = useClearDownloadHistory()
+  const historyItems = history.data?.items ?? []
+
   const preview = usePreviewLinks()
-  // 进度由下方任务面板的 SSE 更新共享缓存，这里只读不轮询。
+  // 任务状态用于媒体行的「下载 / 重新下载」判断；常驻侧栏的任务查询在有活动
+  // 任务时每 2s 轮询，队列页还有 SSE，这里只读共享缓存、不重复轮询。
   const downloads = useDownloads({ poll: false })
   const createDownloads = useCreateDownloads()
 
@@ -64,6 +131,13 @@ export function DownloadsPage() {
     data?.items.filter((item) => !item.expanded && !item.error) ?? []
   const failures = data?.items.filter((item) => item.error) ?? []
   const sharedChat = commonChat(messages)
+  // 「JSON」按钮展示解析接口返回的消息原文；只有一条时直接给对象，便于阅读。
+  const jsonItems = data?.items ?? []
+  const jsonValue = jsonItems.length === 1 ? jsonItems[0] : jsonItems
+  // 恢复草稿后、还没重新解析时展示上次摘要；解析结果存在时不重复展示。
+  const restoredSummary =
+    !data && cache && cache.summary.total > 0 ? formatCacheSummary(cache) : ""
+  const isMobile = useMemo(() => isMobileDevice(), [])
 
   // 相册会返回多条媒体：把每个 items[].medias 摊平成一行一个媒体。
   const mediaRows = useMemo(() => {
@@ -98,13 +172,14 @@ export function DownloadsPage() {
    *
    * single=true 时后端只下载链接指向的那条消息，不把相册展开成整组，
    * 供媒体列表里的单行按钮使用；「全部下载」与表单提交保持整组语义。
+   * allowOverLimit=true 用于用户二次确认后强行下载超过账号单文件上限的媒体。
    */
-  function enqueue(links: string[], single = false) {
+  function enqueue(links: string[], single = false, allowOverLimit = false) {
     if (links.length === 0) {
       return
     }
     createDownloads.mutate(
-      { links, overwrite, single },
+      { links, overwrite, single, allow_over_limit: allowOverLimit || undefined },
       {
         onSuccess: (result) => {
           const summary = summarizeCreateResult(result)
@@ -121,27 +196,173 @@ export function DownloadsPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (targets.length === 0) {
-      toast.error("请先粘贴至少一条 Telegram 链接")
+    runPreview()
+  }
+
+  /** 发起解析；overrides 供历史回填/自动预览使用，避免等状态更新。 */
+  function runPreview(
+    options: {
+      links?: string
+      /** 自动预览不写历史，避免每次打开页面都累加使用次数。 */
+      record?: boolean
+      /** 自动预览不弹 toast，错误仍显示在页面上。 */
+      silent?: boolean
+    } = {}
+  ) {
+    const { record = true, silent = false } = options
+    setCommentsItem(null)
+    const text = options.links ?? links
+    const input = splitLinks(text)
+    if (input.length === 0) {
+      if (!silent) {
+        toast.error("请先粘贴至少一条 Telegram 链接")
+      }
       return
     }
 
     preview.mutate(
-      { links: targets, expand_text_links: expand },
+      { links: input, expand_text_links: expand },
       {
         onSuccess: (result) => {
-          if (result.summary.failed > 0) {
-            toast.warning(
-              `解析完成：成功 ${result.summary.ok}，失败 ${result.summary.failed}`
+          if (!silent) {
+            if (result.summary.failed > 0) {
+              toast.warning(
+                `解析完成：成功 ${result.summary.ok}，失败 ${result.summary.failed}`
+              )
+            } else {
+              toast.success(`已解析 ${result.summary.ok} 条消息`)
+            }
+          }
+          // 摘要与输入一起保存，同时记录到历史（失败静默，不影响解析）。
+          const summaryCache = draftCacheFromPreview(result)
+          setCache(summaryCache)
+          if (record) {
+            recordHistory.mutate(
+              {
+                links: text,
+                expand_text_links: expand,
+                overwrite,
+                cache: summaryCache,
+              },
+              { onError: () => {} }
             )
-          } else {
-            toast.success(`已解析 ${result.summary.ok} 条消息`)
           }
         },
-        onError: (error) => toast.error(describeError(error)),
+        onError: (error) => {
+          if (!silent) {
+            toast.error(describeError(error))
+          }
+        },
       }
     )
   }
+
+  /** 回填历史并立即解析；成功后照常写回历史（累加使用次数与摘要）。 */
+  async function fillFromHistory(entry: DownloadHistoryEntry) {
+    try {
+      const detail = await api.downloads.historyDetail(entry.id)
+      // 两个开关都是全局配置，不随历史记录回填。
+      applyHistory(detail.links)
+      // 先用历史里的摘要占位，解析完成后会被新结果替换。
+      setCache(detail.cache ?? null)
+      preview.reset()
+      setHistoryOpen(false)
+      runPreview({ links: detail.links })
+    } catch (error) {
+      toast.error(describeError(error))
+    }
+  }
+
+  function handleDeleteHistory(id: number) {
+    deleteHistory.mutate(id, {
+      onError: (error) => toast.error(describeError(error)),
+    })
+  }
+
+  function handleClearHistory() {
+    clearHistory.mutate(undefined, {
+      onSuccess: (result) => toast.success(`已清空 ${result.removed} 条历史`),
+      onError: (error) => toast.error(describeError(error)),
+    })
+  }
+
+  // 打开页面时若恢复了草稿且输入非空，按设置自动解析一次刷新摘要与封面；
+  // 自动解析不写历史，避免每次打开页面都累加使用次数。
+  const autoPreviewed = useRef(false)
+  useEffect(() => {
+    if (
+      autoPreviewed.current ||
+      !draftReady ||
+      !draftRestored ||
+      settings.isLoading ||
+      !autoPreview
+    ) {
+      return
+    }
+    if (splitLinks(links).length === 0) {
+      return
+    }
+    autoPreviewed.current = true
+    runPreview({ record: false, silent: true })
+    // 只在草稿恢复完成且设置为开启时触发一次；之后仍由用户点「解析预览」。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftReady, draftRestored, autoPreview, settings.isLoading])
+
+  const historyButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="text-muted-foreground"
+    >
+      <HistoryIcon />
+      历史{historyItems.length > 0 ? `（${historyItems.length}）` : ""}
+    </Button>
+  )
+
+  const renderHistoryPanel = (showHeader: boolean) => (
+    <DownloadHistoryPanel
+      showHeader={showHeader}
+      items={historyItems}
+      isLoading={history.isLoading}
+      isError={history.isError}
+      error={history.error}
+      onRetry={() => void history.refetch()}
+      onSelect={(entry) => void fillFromHistory(entry)}
+      onDelete={handleDeleteHistory}
+      onClear={handleClearHistory}
+      clearing={clearHistory.isPending}
+    />
+  )
+
+  // 桌面用 Popover，窄屏用底部 Sheet；内容复用同一个历史面板。
+  const historyControl = isMobile ? (
+    <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+      <SheetTrigger render={historyButton} />
+      <SheetContent side="bottom" className="max-h-[85vh] gap-0">
+        <SheetHeader className="border-b">
+          <SheetTitle>下载历史</SheetTitle>
+          <SheetDescription>
+            最近解析过的输入；点击回填并自动解析。
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {renderHistoryPanel(false)}
+        </div>
+      </SheetContent>
+    </Sheet>
+  ) : (
+    <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+      <PopoverTrigger render={historyButton} />
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="w-[30rem] max-w-[calc(100vw-2rem)] p-0"
+      >
+        {renderHistoryPanel(true)}
+      </PopoverContent>
+    </Popover>
+  )
 
   return (
     <>
@@ -155,11 +376,25 @@ export function DownloadsPage() {
         className="mb-6 rounded-xl border bg-card p-4 sm:p-5"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Label htmlFor="download-links">下载链接</Label>
             <span className="text-xs text-muted-foreground">
               {targets.length > 0 ? `${targets.length} 条` : "一行一条"}
             </span>
+            {historyControl}
+            {draftStatus === "saving" ? (
+              <span className="text-xs text-muted-foreground">保存中…</span>
+            ) : draftStatus === "saved" ? (
+              <span className="text-xs text-muted-foreground">已保存</span>
+            ) : draftStatus === "error" ? (
+              <button
+                type="button"
+                onClick={retrySave}
+                className="text-xs text-destructive underline underline-offset-2"
+              >
+                保存失败，重试
+              </button>
+            ) : null}
           </div>
           {links.trim() ? (
             <Button
@@ -168,8 +403,9 @@ export function DownloadsPage() {
               size="xs"
               className="text-muted-foreground"
               onClick={() => {
-                setLinks("")
+                clearDraft()
                 preview.reset()
+                setCommentsItem(null)
               }}
             >
               清空
@@ -196,7 +432,10 @@ export function DownloadsPage() {
               <Switch
                 id="expand-text-links"
                 checked={expand}
-                onCheckedChange={setExpand}
+                onCheckedChange={(value) =>
+                  saveSwitch("download_expand_text_links", value)
+                }
+                disabled={settings.isLoading || updateSettings.isPending}
                 aria-label="展开正文里的链接"
               />
               <Label
@@ -211,13 +450,14 @@ export function DownloadsPage() {
               <Switch
                 id="overwrite-files"
                 checked={overwrite}
-                onCheckedChange={setOverwrite}
+                onCheckedChange={(value) => saveSwitch("download_overwrite", value)}
+                disabled={settings.isLoading || updateSettings.isPending}
                 aria-label="覆盖同名文件"
               />
               <Label
                 htmlFor="overwrite-files"
                 className="text-xs font-normal text-muted-foreground"
-                title="同名文件直接替换，不再生成「名称 (1).ext」；会从零重新下载"
+                title="同名文件直接替换，不再生成「名称 (1).ext」；会从零重新下载。与设置页的「下载覆盖文件」是同一项配置。"
               >
                 覆盖同名文件
               </Label>
@@ -247,6 +487,48 @@ export function DownloadsPage() {
           不会创建下载任务。
         </p>
       </form>
+
+      {restoredSummary ? (
+        <section
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3"
+          aria-label="上次解析摘要"
+        >
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <HistoryIcon className="size-4 text-muted-foreground" />
+              上次解析
+            </p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {restoredSummary}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => runPreview()}
+              disabled={preview.isPending || targets.length === 0}
+            >
+              {preview.isPending ? (
+                <Loader2Icon className="animate-spin" />
+              ) : (
+                <RefreshCwIcon />
+              )}
+              重新解析
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              onClick={() => setCache(null)}
+            >
+              清除摘要
+            </Button>
+          </div>
+        </section>
+      ) : null}
 
       {preview.isError ? (
         <p
@@ -296,7 +578,10 @@ export function DownloadsPage() {
             variant="ghost"
             size="xs"
             className="text-muted-foreground"
-            onClick={() => preview.reset()}
+            onClick={() => {
+              preview.reset()
+              setCommentsItem(null)
+            }}
           >
             清空结果
           </Button>
@@ -336,6 +621,24 @@ export function DownloadsPage() {
                 </span>
               ) : null}
             </CardTitle>
+            <CardAction>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                disabled={jsonItems.length === 0}
+                onClick={() => setJsonOpen(true)}
+                title={
+                  jsonItems.length > 0
+                    ? "查看解析接口返回的消息原始 JSON"
+                    : "解析链接后可以查看消息原始 JSON"
+                }
+                aria-label="查看消息原始 JSON"
+              >
+                <FileJsonIcon />
+                JSON
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent className="flex min-h-40 flex-1 flex-col">
             {preview.isPending ? (
@@ -347,6 +650,7 @@ export function DownloadsPage() {
                     key={`${item.link}-${index}`}
                     item={item}
                     showChat={!sharedChat}
+                    onOpenComments={setCommentsItem}
                   />
                 ))}
               </div>
@@ -402,13 +706,16 @@ export function DownloadsPage() {
                       item={row.item}
                       media={row.media}
                       task={tasksByLink.get(row.link)}
+                      overwrite={overwrite}
                       busy={createDownloads.isPending}
-                      onDownload={() => enqueue([row.link], true)}
+                      onDownload={(allowOverLimit) =>
+                        enqueue([row.link], true, allowOverLimit)
+                      }
                     />
                   ))}
                 </ul>
                 <p className="mt-3 shrink-0 text-xs text-muted-foreground">
-                  下载进度与暂停/重试在下方「下载任务」里查看。
+                  下载进度与暂停/重试在「下载队列」页查看。
                 </p>
               </>
             ) : (
@@ -425,9 +732,29 @@ export function DownloadsPage() {
         </Card>
       </div>
 
-      <div className="mt-6">
-        <DownloadTasks />
-      </div>
+      <JsonViewerDialog
+        open={jsonOpen}
+        onOpenChange={setJsonOpen}
+        title="消息原始 JSON"
+        description={
+          data
+            ? `解析接口返回的 ${data.items.length} 条消息原文，包含展开项与失败项。`
+            : "还没有解析结果。"
+        }
+        value={jsonValue}
+      />
+
+      <CommentsDialog
+        open={commentsItem !== null}
+        item={commentsItem}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCommentsItem(null)
+          }
+        }}
+        onDownload={(link) => enqueue([link], true)}
+        downloading={createDownloads.isPending}
+      />
     </>
   )
 }
@@ -438,7 +765,15 @@ function chatName(chat?: PreviewChat | null): string {
 }
 
 /** 一条消息的正文：会话、配图（相册则整组）、正文与内嵌链接。 */
-function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?: boolean }) {
+function MessageBlock({
+  item,
+  showChat = true,
+  onOpenComments,
+}: {
+  item: PreviewItem
+  showChat?: boolean
+  onOpenComments: (item: PreviewItem) => void
+}) {
   const chat = chatName(item.chat)
   const chatType = chatTypeLabel(item.chat)
   const isGroup = chatType === "群聊"
@@ -495,14 +830,29 @@ function MessageBlock({ item, showChat = true }: { item: PreviewItem; showChat?:
             ) : null}
           </div>
         </div>
-        <a
-          href={item.link}
-          target="_blank"
-          rel="noreferrer"
-          className="shrink-0 hover:text-foreground hover:underline"
-        >
-          原消息
-        </a>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {item.comment_section?.available ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => onOpenComments(item)}
+              title={`查看评论（${item.comment_section.count} 条）`}
+              aria-label={`查看评论（${item.comment_section.count} 条）`}
+            >
+              <MessageCircleIcon />
+              {commentButtonLabel(item.comment_section)}
+            </Button>
+          ) : null}
+          <a
+            href={item.link}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 hover:text-foreground hover:underline"
+          >
+            原消息
+          </a>
+        </div>
       </div>
 
       {gallery.length === 1 ? (
@@ -665,15 +1015,19 @@ function MediaRow({
   item,
   media,
   task,
+  overwrite,
   busy,
   onDownload,
 }: {
   item: PreviewItem
   media: PreviewMedia
   task?: DownloadTask
+  /** 覆盖同名文件开关；打开后允许对已完成/失败/暂停的任务重新下载。 */
+  overwrite: boolean
   busy: boolean
-  onDownload: () => void
+  onDownload: (allowOverLimit?: boolean) => void
 }) {
+  const [forceOpen, setForceOpen] = useState(false)
   const meta = [
     item.chat?.title,
     mediaKindLabel(media.kind),
@@ -681,50 +1035,159 @@ function MediaRow({
     media.duration ? formatDuration(media.duration) : "",
   ].filter(Boolean)
 
+  const done = task?.status === "done"
+  const openUrl = done && task ? downloadFileUrl(task.id) : null
+  const openLabel = fileActionLabel(media.kind)
+  const canOpen = Boolean(openUrl)
+  /** 与「下载队列」一致：在新标签页打开已下载文件（图片原图、音视频播放）。 */
+  function openFile() {
+    if (!openUrl) {
+      return
+    }
+    window.open(openUrl, "_blank", "noopener,noreferrer")
+  }
+
+  const active =
+    task?.status === "pending" || task?.status === "running"
+  // 只有覆盖模式才允许重跑已停止的任务；排队中/下载中不能打断。
+  const canRestart = Boolean(task) && overwrite && !active
+  // 超过上限不再禁用按钮，点击后走二次确认再强制提交。
+  const disabled = active || busy || (Boolean(task) && !canRestart)
+
+  const actionTitle = task
+    ? active
+      ? `已在下载任务中（${downloadStatusLabel(task.status)}）`
+      : overwrite
+        ? "覆盖同名文件并重新下载"
+        : `已在下载任务中（${downloadStatusLabel(task.status)}）；打开「覆盖同名文件」可重新下载`
+    : media.downloadable
+      ? "只下载这个文件（相册不会整组展开）"
+      : "超过当前账号的单文件上限；点击后二次确认仍可强行下载"
+  const actionLabel = canRestart
+    ? `覆盖并重新下载 ${media.file_name}`
+    : task
+      ? `${media.file_name} 已在下载任务中`
+      : media.downloadable
+        ? `只下载 ${media.file_name}`
+        : `强行下载 ${media.file_name}`
+
   return (
-    <li className="flex items-start gap-3 border-b py-2.5 first:pt-0 last:border-b-0 last:pb-0">
-      <MediaCover media={media} />
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="truncate text-sm font-medium" title={media.file_name}>
-          {media.file_name}
-        </p>
-        <p className="text-xs leading-relaxed break-words text-muted-foreground">
-          {meta.join(" · ")}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {task ? (
-          <Badge variant={downloadStatusVariant(task.status)} className="shrink-0">
-            {downloadStatusLabel(task.status)}
-          </Badge>
-        ) : null}
-        {media.downloadable ? null : (
-          <Badge variant="secondary" className="shrink-0">
-            超过上限
-          </Badge>
+    <>
+      <li
+        className={cn(
+          "flex items-start gap-3 border-b py-2.5 first:pt-0 last:border-b-0 last:pb-0",
+          canOpen && "cursor-pointer rounded-md transition-colors hover:bg-muted/40"
         )}
-        <Button
-          variant="outline"
-          size="icon-sm"
-          disabled={!media.downloadable || Boolean(task) || busy}
-          onClick={onDownload}
-          title={
-            task
-              ? `已在下载任务中（${downloadStatusLabel(task.status)}）`
-              : media.downloadable
-                ? "只下载这个文件（相册不会整组展开）"
-                : "超过当前账号的单文件上限"
+        role={canOpen ? "button" : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        title={canOpen ? `点击${openLabel}` : undefined}
+        aria-label={canOpen ? `${openLabel}：${media.file_name}` : undefined}
+        onClick={(event) => {
+          if (!canOpen) {
+            return
           }
-          aria-label={
-            task
-              ? `${media.file_name} 已在下载任务中`
-              : `只下载 ${media.file_name}`
+          const target = event.target as HTMLElement
+          // 行内按钮/链接的点击不触发「打开文件」。
+          if (target.closest("button, a, input, textarea, select")) {
+            return
           }
-        >
-          <DownloadIcon />
-        </Button>
-      </div>
-    </li>
+          openFile()
+        }}
+        onKeyDown={(event) => {
+          if (!canOpen || event.target !== event.currentTarget) {
+            return
+          }
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            openFile()
+          }
+        }}
+      >
+        <MediaCover media={media} />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="truncate text-sm font-medium" title={media.file_name}>
+            {media.file_name}
+          </p>
+          <p className="text-xs leading-relaxed break-words text-muted-foreground">
+            {meta.join(" · ")}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {task ? (
+            <Badge variant={downloadStatusVariant(task.status)} className="shrink-0">
+              {downloadStatusLabel(task.status)}
+            </Badge>
+          ) : null}
+          {media.downloadable ? null : (
+            <Badge variant="secondary" className="shrink-0">
+              超过上限
+            </Badge>
+          )}
+          {canOpen && openUrl ? (
+            <a
+              href={openUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={openLabel}
+              aria-label={`${openLabel}：${media.file_name}`}
+              className={buttonVariants({ variant: "outline", size: "icon-sm" })}
+            >
+              <ExternalLinkIcon />
+            </a>
+          ) : null}
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={disabled}
+            onClick={() => {
+              if (!media.downloadable) {
+                setForceOpen(true)
+                return
+              }
+              onDownload()
+            }}
+            title={actionTitle}
+            aria-label={actionLabel}
+          >
+            {canRestart ? <RefreshCwIcon /> : <DownloadIcon />}
+          </Button>
+        </div>
+      </li>
+
+      <ModalDialog
+        open={forceOpen}
+        onOpenChange={setForceOpen}
+        title="超过单文件上限"
+        description={media.file_name}
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setForceOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                setForceOpen(false)
+                onDownload(true)
+              }}
+            >
+              仍要下载
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm leading-relaxed text-muted-foreground">
+          <p>
+            文件大小 {formatBytes(media.size)}，当前账号单文件上限{" "}
+            {formatBytes(media.max_size)}。
+          </p>
+          <p>
+            继续会强制创建下载任务；Telegram 仍可能拒绝超过账号上限的文件，
+            任务可能失败。
+          </p>
+        </div>
+      </ModalDialog>
+    </>
   )
 }
 
@@ -871,20 +1334,6 @@ function GalleryThumb({
   )
 }
 
-/** 媒体类型的中文标签。 */
-function mediaKindLabel(kind: MediaKind): string {
-  switch (kind) {
-    case "photo":
-      return "图片"
-    case "video":
-      return "视频"
-    case "audio":
-      return "音频"
-    default:
-      return "文件"
-  }
-}
-
 /** 视频角标文案：有时长显示时长，否则退回「视频」。 */
 function galleryDurationLabel(image: GalleryImage): string {
   return image.video && image.duration ? formatDuration(image.duration) : "视频"
@@ -904,4 +1353,18 @@ function GalleryPlaceholder({ image }: { image: GalleryImage }) {
       ) : null}
     </div>
   )
+}
+
+/** 已完成任务的打开方式：图片看原图，音视频在浏览器播放，其余下载文件。 */
+function fileActionLabel(kind: PreviewMedia["kind"]): string {
+  switch (kind) {
+    case "photo":
+      return "查看原图"
+    case "video":
+      return "播放视频"
+    case "audio":
+      return "播放音频"
+    default:
+      return "下载文件"
+  }
 }

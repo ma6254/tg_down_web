@@ -6,5 +6,11 @@ export const queryKeys = {
   account: (id: number) => ["accounts", id] as const,
   accountLive: (id: number) => ["accounts", id, "live"] as const,
   settings: ["settings"] as const,
+  comments: (link: string) => ["comments", link] as const,
   downloads: ["downloads"] as const,
+  downloadSpeedHistory: (windowSeconds: number, bucketSeconds: number) =>
+    ["downloads", "speed-history", windowSeconds, bucketSeconds] as const,
+  downloadDraft: ["download-draft"] as const,
+  downloadHistory: ["download-history"] as const,
+  downloadHistoryItem: (id: number) => ["download-history", id] as const,
 }

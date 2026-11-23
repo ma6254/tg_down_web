@@ -28,6 +28,8 @@ export interface RequestOptions {
   token?: string | null
   /** 默认 true；登录校验等场景传 false，避免把「候选 token 错误」当成全局登出。 */
   handleUnauthorized?: boolean
+  /** 为 true 时允许请求在页面卸载后继续（草稿 pagehide 兜底保存）。 */
+  keepalive?: boolean
 }
 
 /** 归一后的接口错误。status 为 0 表示未收到响应（网络错误/超时/取消）。 */
@@ -134,6 +136,7 @@ export async function request<T>(
     timeoutMs = 20_000,
     token: tokenOverride,
     handleUnauthorized = true,
+    keepalive = false,
   } = options
 
   const token = tokenOverride === undefined ? getStoredToken() : tokenOverride
@@ -165,6 +168,7 @@ export async function request<T>(
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
+      keepalive,
     })
 
     const text = await response.text().catch(() => "")

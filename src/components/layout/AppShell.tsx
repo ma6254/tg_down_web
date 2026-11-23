@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Outlet, useLocation } from "react-router-dom"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Topbar } from "@/components/layout/Topbar"
+import { useSyncWebTheme } from "@/hooks/use-web-theme"
+import { useDocumentTitleSpeed } from "@/hooks/use-web-title-speed"
 import {
   Sheet,
   SheetContent,
@@ -14,6 +16,8 @@ import {
  * 页面本身只负责标题与内容，不处理整体布局。
  */
 export function AppShell() {
+  useSyncWebTheme()
+  useDocumentTitleSpeed()
   const [navOpen, setNavOpen] = useState(false)
   const location = useLocation()
   const mainRef = useRef<HTMLElement>(null)
@@ -55,7 +59,7 @@ export function AppShell() {
         <SheetContent side="left" className="w-72 max-w-[85vw] gap-0 p-0">
           <SheetTitle className="sr-only">导航菜单</SheetTitle>
           <SheetDescription className="sr-only">
-            在账号、下载与设置页面之间切换
+            在账号、下载、下载队列与设置页面之间切换
           </SheetDescription>
           <Sidebar
             className="h-full w-full border-r-0"

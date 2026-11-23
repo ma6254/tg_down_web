@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { maskPhone, maskProxyUrl } from "./mask"
+import { maskPhone, maskProxyUrl, maskSecret } from "./mask"
 
 describe("maskPhone", () => {
   it("空值返回占位符", () => {
@@ -22,6 +22,21 @@ describe("maskPhone", () => {
 
   it("过短或无法识别的输入原样返回", () => {
     expect(maskPhone("123")).toBe("123")
+  })
+})
+
+describe("maskSecret", () => {
+  it("空值与短长度全部打码", () => {
+    expect(maskSecret(undefined)).toBe("—")
+    expect(maskSecret("   ")).toBe("—")
+    expect(maskSecret("short")).toBe("•••••")
+  })
+
+  it("保留首尾各 4 位并去掉首尾空白", () => {
+    expect(maskSecret("0123456789abcdef0123456789abcdef")).toBe(
+      "0123••••••••cdef"
+    )
+    expect(maskSecret(" 0123456789abcdef ")).toBe("0123••••••••cdef")
   })
 })
 

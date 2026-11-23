@@ -6,6 +6,8 @@ import {
   formatDateTime,
   formatDuration,
   formatRuntime,
+  formatSpeed,
+  formatSpeedParts,
   formatUptime,
 } from "./format"
 
@@ -54,6 +56,37 @@ describe("formatUptime", () => {
     expect(formatUptime(125)).toBe("2 分 5 秒")
     expect(formatUptime(3725)).toBe("1 小时 2 分")
     expect(formatUptime(93784)).toBe("1 天 2 小时")
+  })
+})
+
+describe("formatSpeed", () => {
+  it("在字节单位后追加 /s", () => {
+    expect(formatSpeed(0)).toBe("0 B/s")
+    expect(formatSpeed(1024)).toBe("1.0 KB/s")
+    expect(formatSpeed(1536)).toBe("1.5 KB/s")
+  })
+
+  it("无效值返回占位符", () => {
+    expect(formatSpeed(undefined)).toBe("—")
+    expect(formatSpeed(-1)).toBe("—")
+    expect(formatSpeed(Number.NaN)).toBe("—")
+  })
+})
+
+describe("formatSpeedParts", () => {
+  it("拆出数值与单位，供大字号排版", () => {
+    expect(formatSpeedParts(0)).toEqual({ value: "0", unit: "B/s" })
+    expect(formatSpeedParts(1536)).toEqual({ value: "1.5", unit: "KB/s" })
+    expect(formatSpeedParts(10 * 1024 * 1024)).toEqual({
+      value: "10.0",
+      unit: "MB/s",
+    })
+  })
+
+  it("无效值只返回占位符，不拼单位", () => {
+    expect(formatSpeedParts(undefined)).toEqual({ value: "—", unit: "" })
+    expect(formatSpeedParts(-1)).toEqual({ value: "—", unit: "" })
+    expect(formatSpeedParts(Number.NaN)).toEqual({ value: "—", unit: "" })
   })
 })
 

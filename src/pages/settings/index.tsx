@@ -7,7 +7,6 @@ import { AccountPickerDialog } from "@/components/accounts/AccountPickerDialog"
 import { ErrorState } from "@/components/common/ErrorState"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
 import { useSelectAccount } from "@/hooks/use-accounts"
 import { useAuth } from "@/hooks/use-auth"
 import { useHealthStatus, useSettings, useSystemInfo } from "@/hooks/use-settings"
@@ -16,11 +15,16 @@ import { ClearSettingDialog } from "@/pages/settings/ClearSettingDialog"
 import { ServiceInfoCard } from "@/pages/settings/ServiceInfoCard"
 import { SettingEditDialog } from "@/pages/settings/SettingEditDialog"
 import { SettingsList } from "@/pages/settings/SettingsList"
+import { SettingsSkeleton } from "@/pages/settings/SettingsSkeleton"
+import { SettingsTips } from "@/pages/settings/SettingsTips"
+import { SettingsWriteOverlay } from "@/pages/settings/SettingsWriteOverlay"
+import { WebSettingsCard } from "@/pages/settings/WebSettingsCard"
 
 /**
  * 设置页：左侧按语义分组的配置项，右侧服务信息与说明。
  *
- * 窄屏改单列，服务信息在前、配置在后。
+ * 窄屏改单列，服务信息在前、配置在后。页面本身只负责数据获取、
+ * 弹窗开关与布局；行展示、写入遮罩等细节见同目录下的子组件。
  */
 export function SettingsPage() {
   const settingsQuery = useSettings()
@@ -65,7 +69,7 @@ export function SettingsPage() {
     <div className="mx-auto w-full max-w-4xl">
       <PageHeader
         title="设置"
-        description="查看并修改服务端配置。"
+        description="查看并修改服务端配置与网页偏好。"
         actions={
           <Button
             variant="outline"
@@ -95,6 +99,7 @@ export function SettingsPage() {
         </aside>
 
         <div className="order-2 space-y-4 xl:order-1 xl:col-start-1 xl:row-start-1">
+          <WebSettingsCard />
           {settingsQuery.isPending ? (
             <SettingsSkeleton />
           ) : settingsQuery.error ? (
@@ -106,8 +111,8 @@ export function SettingsPage() {
           ) : (
             <SettingsList
               rows={rows}
-              onEdit={(row) => setEditing(row)}
-              onClear={(row) => setClearing(row)}
+              onEdit={setEditing}
+              onClear={setClearing}
               onPickAccount={() => setPickerOpen(true)}
             />
           )}
@@ -129,49 +134,7 @@ export function SettingsPage() {
         onOpenChange={setPickerOpen}
         onConfirm={handlePickAccount}
       />
-    </div>
-  )
-}
-
-/** 侧栏说明：修改时机与配置项来源。 */
-function SettingsTips() {
-  return (
-    <section className="rounded-xl border bg-card p-4">
-      <h2 className="text-sm font-medium">说明</h2>
-      <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-        <li>修改立即生效；运行中的任务沿用旧连接。</li>
-        <li>
-          配置项由后端 config.items 定义，未登记的键只读展示，无法在 Web 中修改。
-        </li>
-      </ul>
-    </section>
-  )
-}
-
-function SettingsSkeleton() {
-  return (
-    <div
-      className="space-y-4"
-      role="status"
-      aria-live="polite"
-      aria-busy="true"
-    >
-      <span className="sr-only">正在加载配置…</span>
-      {[0, 1].map((index) => (
-        <div
-          key={index}
-          className="overflow-hidden rounded-xl border bg-card"
-        >
-          <div className="border-b px-4 py-3">
-            <Skeleton className="h-4 w-16" />
-          </div>
-          <div className="space-y-3 p-4">
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-8 w-24" />
-          </div>
-        </div>
-      ))}
+      <SettingsWriteOverlay switchingAccount={select.isPending} />
     </div>
   )
 }

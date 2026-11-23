@@ -29,6 +29,8 @@ export interface PicViewerMobileDialogProps {
   onNext?: () => void
   hasPrev?: boolean
   hasNext?: boolean
+  /** 图片加载失败时回调，调用方可切换到下一张候选地址。 */
+  onImageError?: (src: string) => void
 }
 
 export interface PicViewerMobileProps {
@@ -105,6 +107,7 @@ function PicViewerMobileDialog({
   onNext,
   hasPrev = false,
   hasNext = false,
+  onImageError,
 }: PicViewerMobileDialogProps) {
   const [scale, setScale] = useState(1)
   const [translateX, setTranslateX] = useState(0)
@@ -193,7 +196,8 @@ function PicViewerMobileDialog({
         tapTimerRef.current = null
       }
     }
-  }, [open, resetToFit])
+    // src 变化（查看器回退到下一张候选地址）时也重新适配。
+  }, [open, resetToFit, src])
 
   // 卸载时清理双击计时器。
   useEffect(() => {
@@ -359,6 +363,7 @@ function PicViewerMobileDialog({
                 setNaturalSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })
                 resetToFit()
               }}
+              onError={() => onImageError?.(imageUrl)}
               style={{
                 transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
                 maxWidth: 'none',

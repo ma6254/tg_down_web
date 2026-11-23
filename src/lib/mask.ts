@@ -40,6 +40,22 @@ export function maskPhone(raw?: string): string {
 }
 
 /**
+ * 密钥脱敏：保留首尾各 4 位，中间用固定 8 个圆点代替。
+ *
+ * 长度不超过 8 时全部打码；空值返回占位符，避免把短密钥露出。
+ */
+export function maskSecret(raw?: string): string {
+  const text = raw?.trim() ?? ""
+  if (!text) {
+    return "—"
+  }
+  if (text.length <= 8) {
+    return "•".repeat(text.length)
+  }
+  return `${text.slice(0, 4)}${"•".repeat(8)}${text.slice(-4)}`
+}
+
+/**
  * 代理地址脱敏：只隐藏密码部分，保留协议、用户名与主机。
  *
  * 后端目前会把 `http_proxy` 原样返回，前端展示时必须先过这一层；

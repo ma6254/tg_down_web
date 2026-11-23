@@ -11,11 +11,12 @@
 ### 0.1 当前状态
 
 - **已完成**：W0–W4（应用壳/鉴权/账号页/设置页/打磨）、W6（下载页 + SSE）、
-  W7 的后端内嵌（单二进制，前端由 `-tags webdist` 打进后端）。
+  W7 的后端内嵌（单二进制，前端由 `-tags webdist` 打进后端）、W10（下载草稿）、W11（下载历史），
+  以及下载页频道评论区（preview 摘要 + 按需加载）。
 - **未开始**：W5a–W5c（仿 Telegram Desktop 的会话界面）、W8（监控页）、
-  W9（RSS 订阅入口）、W10（下载草稿）、W11（下载历史），均依赖后端尚未实现的接口。
+  W9（RSS 订阅入口），均依赖后端尚未实现的接口。
 - **已知限制**：`botapi` 账号与手机号/验证码登录没有前端入口；会话/消息、
-  监控、RSS、草稿与历史没有页面；路由级拆包未做（主包约 743 KB，gzip 233 KB）。
+  监控、RSS 没有页面；路由级拆包未做（主包约 769 KB，gzip 240 KB）。
 
 ### 0.2 状态图例
 
@@ -48,7 +49,7 @@
 - 打开 Web 即是完整应用壳：侧栏导航、页面标题、主题切换、后端连接状态。
 - 账号与配置管理全部基于真实接口；下载页覆盖「解析 → 预览 → 入队 → 进度 → 控制」闭环。
 - 后续目标：仿 Telegram Desktop 的只读会话界面（群 / 频道 / 私聊 / 收藏夹），
-  以及群/频道监控、RSS 输出、下载草稿与历史。
+  以及群/频道监控、RSS 输出。
 - 移动端基础可用、暗色模式可用；不追求精细适配。
 
 ### 1.2 非目标
@@ -93,17 +94,17 @@ src/
   components/
     accounts/        # 账号头像、选择器、详情、探测
     auth/            # AuthGate / AuthProvider / AuthShell / OfflineScreen / BootSplash
-    common/          # EmptyState / ErrorState / ModalDialog / PeerAvatar
+    common/          # EmptyState / ErrorState / JsonViewerDialog / ModalDialog / PeerAvatar
     layout/          # AppShell / Sidebar / Topbar / PageHeader / Brand
     messages/        # MessageText（正文实体渲染）
     PicViewer/       # 桌面图片查看器
     PicViewerMobile/ # 移动端图片查看器
     ui/              # shadcn 生成物，勿手改
   hooks/             # use-auth / use-theme / use-accounts / use-settings /
-                     # use-downloads / use-download-events / use-preview-links / use-document-title
+                     # use-downloads / use-download-events / use-preview-links / use-comments / use-document-title
   lib/               # query-client、theme、format、mask、account、settings、chat、
-                     # download、gallery、rich-text、clipboard、device、utils
-  pages/             # accounts、downloads、settings、login、not-found、route-error
+                     # download、gallery、rich-text、clipboard、device、json、json-tree、comments、utils
+  pages/             # accounts、downloads、queue、settings、login、not-found、route-error
   router.tsx         # 路由表
   main.tsx           # Provider 装配
   index.css          # Tailwind 入口 + shadcn 主题变量
@@ -123,7 +124,8 @@ docs/plan.md         # 本文
 | `/login` | 登录 | 【已实现】 | `GET /health`（校验候选 token） |
 | `/` → `/accounts` | 账号 | 【已实现】 | accounts 列表/详情/在线资料/切换/探测/删除/登出、头像 |
 | `/settings` | 设置 | 【已实现】 | `GET/PUT /settings`、`GET /system`、health、账号选择 |
-| `/downloads` | 下载 | 【已实现】 | 链接预览、下载任务 CRUD/控制、SSE、缩略图 |
+| `/downloads` | 下载 | 【已实现】 | 链接预览、下载草稿/历史、缩略图 |
+| `/queue` | 下载队列 | 【已实现】 | 下载任务列表/进度/控制、SSE |
 | `/chats`、`/chats/:peer` | 会话与消息 | 【规划中】 | 后端 chats/messages 未实现 |
 | `/monitors` | 群/频道监控 | 【规划中】 | 后端 monitors 未实现 |
 | `*` | 404 | 【已实现】 | — |
@@ -147,12 +149,13 @@ docs/plan.md         # 本文
 | 基础 | `GET /health`、`GET /system` |
 | 账号 | `GET /accounts`、`GET /accounts/{id}`、`GET /accounts/{id}/live`、`POST /accounts/{id}/select`、`POST /accounts/{id}/logout`、`DELETE /accounts/{id}`、`POST /accounts/probe`、`GET /accounts/{id}/avatar` |
 | 设置 | `GET /settings`、`PUT /settings` |
-| 链接 | `POST /links/preview`、`GET /media/thumbnail/{token}` |
-| 下载 | `POST /downloads`、`GET /downloads`、`GET /downloads/{id}`、`POST /downloads/{id}/{action}`、`DELETE /downloads/{id}`、`GET /downloads/{id}/thumbnail` |
+| 链接 | `POST /links/preview`、`GET /links/comments`、`GET /media/thumbnail/{token}` |
+| 下载 | `POST /downloads`、`GET /downloads`、`GET /downloads/{id}`、`GET /downloads/stats`、`GET /downloads/stats/history`、`POST /downloads/{id}/{action}`、`DELETE /downloads/{id}`、`GET /downloads/{id}/thumbnail` |
+| 下载页 | `GET/PUT /downloads/draft`、`GET/POST /downloads/history`、`GET/DELETE /downloads/history/{id}`、`DELETE /downloads/history` |
 | 实时 | `GET /events`（SSE：`task.update` / `task.progress` / `task.deleted`） |
 
 尚未实现（前端已为其预留设计，见 §8）：Bot/手机号登录、会话列表与消息、标记已读、
-`downloads/from-messages`、监控、RSS feed、下载草稿与历史。
+`downloads/from-messages`、监控、RSS feed。
 
 ## 3. 架构
 
@@ -185,6 +188,7 @@ Query key 与失效策略：
 | `['accounts', id, 'live']` | 在线资料 | 打开详情时按需请求 |
 | `['settings']` | 配置数组 | PUT 成功后用响应回填 |
 | `['downloads']` | 任务列表 | SSE 增量合并；通知派发后失效 |
+| `['downloads', 'speed-history', window, bucket]` | 历史速度曲线 | 队列页轮询：活动 1s、空闲 10s；`downloads` 前缀失效时一并刷新 |
 
 QueryClient 默认：`staleTime: 15_000`、`retry: 1`、`refetchOnWindowFocus: true`。
 
@@ -221,6 +225,8 @@ GET /health（带 token，如果有）
 - 合并：`task.update` 整条替换、`task.progress` 只更新 offset/speed、
   `task.deleted` 从列表移除；行组件 `memo` 避免整表重渲染。
 - 断线期间退回 2 秒轮询，标题旁显示「已断开（轮询中）」。
+- 连接由「下载队列」页的任务面板建立，离开该页即断开；侧栏常驻的任务查询
+  在有活动任务时每 2s 轮询作为全局兜底，下载页的媒体行状态也读这份共享缓存。
 
 ### 3.4 路由
 
@@ -230,7 +236,8 @@ GET /health（带 token，如果有）
 | `/` | → `/accounts` | 【已实现】 | 会话页上线后再评估改为 `/chats` |
 | `/accounts` | 账号 | 【已实现】 | 详情用弹窗，不单独占路由 |
 | `/settings` | 设置 | 【已实现】 | |
-| `/downloads` | 下载 | 【已实现】 | 链接解析预览 + 任务列表 |
+| `/downloads` | 下载 | 【已实现】 | 链接解析预览；任务面板在 `/queue` |
+| `/queue` | 下载队列 | 【已实现】 | 任务列表、进度、暂停/恢复/重试/删除 |
 | `/chats` | 会话列表 | 【规划中】 | 桌面端与 `/chats/:peer` 双栏 |
 | `/chats/:peer` | 消息流 + 信息面板 | 【规划中】 | `peer` 形如 `channel:123`、`user:456` |
 | `/monitors` | 群/频道监控 | 【规划中】 | 列表、规则、试运行与命中记录 |
@@ -252,8 +259,9 @@ GET /health（带 token，如果有）
 
 ### 4.1 应用壳
 
-- 侧栏 15rem：Logo + 导航（账号 / 下载 / 设置）+ 底部状态（连接状态、主题切换）；
-  会话、监控入口等后端接口就绪后再加。
+- 侧栏 15rem：Logo + 导航（账号 / 下载 / 下载队列 / 设置）+ 底部状态（连接状态、主题切换）；
+  「下载队列」右侧显示正在下载 + 排队中的任务数（running / pending，0 时隐藏；
+  有进行中任务时随任务列表每 2s 轮询更新）；会话、监控入口等后端接口就绪后再加。
 - 顶栏：页面标题 + 说明；右侧刷新、主题切换、移动端菜单。
 - 窄屏（< lg）：侧栏收进 `Sheet`，顶栏出现菜单按钮；表格切卡片。
 - 暗色：自研 `ThemeProvider` + `index.html` 内联脚本预设 class，避免首屏闪白。
@@ -287,35 +295,79 @@ GET /health（带 token，如果有）
 ### 4.4 设置页
 
 - 布局：桌面两栏（配置 `1fr` + 右侧服务信息 `17rem`），窄屏单列且服务信息在前。
+- 网页设置卡（配置列顶部）：
+  - 主题（浅色/深色/跟随系统），读写服务端 `settings.web_theme`
+    （`light` / `dark` / `system`，默认 `system`）；`localStorage.theme` 只用于首屏快速渲染，
+    AppShell 拿到配置后以服务端值校正；配置接口失败时保留本地选择。
+  - 网页标题速度开关，读写 `settings.web_title_speed`（布尔，默认 `false`）。开启后
+    AppShell 汇总运行中任务的 `speed`，浏览器标题变为
+    `1.2 MB/s · 下载队列 · tg_down`；无运行任务时显示
+    `无活动 · 下载队列 · tg_down`。
+  - 两个键都不进入通用配置列表，由卡片单独展示；写入成功后用右下角 toast 确认
+    （与配置项开关一致），失败时保留本地主题并提示原因。
 - 服务信息卡：健康状态、版本、提交、编译时间、运行环境（Go/OS/Arch）、运行时长、
   鉴权模式、接口前缀；取不到 `/system` 时对应行降级为 `—`。
-- 配置按语义分组：**网络**（`http_proxy` + 行内启用开关）、**账号**
-  （`current_account_id` 只读 + 选择账号）、**其他配置**（未识别/未来键）。
+- 配置按语义分组：**网络**（`http_proxy` + 行内启用开关）、**下载配置**
+  （覆盖开关、展开正文链接、自动解析、下载评论区、并行文件数/线程数）、**Telegram API**、
+  **账号**（`current_account_id` 只读 + 选择账号）、**其他配置**（未识别/未来键）。
 - 每行中文标题为主，原始键名作为次要信息；徽章：已启用/已停用/只读/未识别。
 - `http_proxy`：展示时密码固定 `***`；编辑校验 `http(s)/socks5/socks5h + host`；
   首次设置地址时顺带写 `http_proxy_enabled=true`；清除时同时清地址与开关。
 - `current_account_id`：只读展示 `#id`，行内「选择账号」打开 `AccountPickerDialog`。
 - 未知键只展示不提供编辑；PUT 成功后用响应全量回填缓存。
+- 写入请求（编辑/清除、行内开关与网页设置、切换账号）期间显示全局遮罩等待层
+  `GlobalLoadingOverlay`：遮罩立即挂载并拦截交互、延迟 150ms 淡入（本地快速响应不闪屏），
+  保存中的弹窗不允许关闭，失败时仍能在弹窗内看到错误。所有配置写入共用
+  `UPDATE_SETTINGS_MUTATION_KEY`，页面用 `useIsMutating` 统计在途写入。
 
 ### 4.5 下载页
 
 已实现：
 
 - 输入：多行链接（一行一条）、展开正文链接、覆盖同名文件三个开关；解析只读，不创建任务。
+  其中「覆盖同名文件」「展开正文里的链接」读写系统配置
+  `download_overwrite` / `download_expand_text_links`（`GET/PUT /settings`），与设置页同一项；
+  只有链接文本存在下载页草稿里。打开页面时是否自动解析由 `download_auto_preview`（默认 true）控制。
 - 解析结果：按消息分组展示聊天/发送人、正文（`MessageText` 渲染实体）与媒体；
   相册多行媒体；正文卡片为图片/视频封面提供占位（无封面或加载失败时显示图标 + 时长）。
+- 正文卡片右上角「JSON」按钮：用公共组件 `JsonViewerDialog` 只读展示 `/links/preview`
+  返回的消息原始 JSON（缩进宽度可切换 2/4/8 空格、行号、按层级着色的彩虹缩进
+  与括号、数组对象元素的 `[index] =` 标注、语法着色、对象/数组可折叠、
+  Ctrl/Cmd+A 全选 JSON 复制；手动选区跨折叠块时按原文展开折叠内容），
+  便于核对接口字段。
+- 正文卡片「评论（N）」按钮：`/links/preview` 的 `comment_section` 决定是否显示；
+  点开 `CommentsDialog` 后按需请求 `GET /links/comments`（20 条/页、`next_offset_id` 加载更多），
+  展示评论区讨论组、评论正文/实体、回复目标与媒体；评论媒体可直接创建下载任务。
+  评论区不随 preview 批量预加载，避免 N+1 与 `FLOOD_WAIT`。
 - 媒体列表：文件/会话/类型/大小/是否可下载；单行「下载」只提交该媒体（`single: true`），
-  「全部下载」提交全部媒体；超过账号单文件上限显示「超过上限」。
-- 任务面板：状态页签（全部/等待/下载中/已暂停/已完成/失败）+ 数量；每行展示
-  文件、会话、大小、进度条、速度、剩余时间、状态与操作（暂停/继续/重试/复制源链接/删除）；
+  「全部下载」提交全部媒体；超过账号单文件上限显示「超过上限」，但按钮不再置灰——
+  点击弹二次确认，确认后带 `allow_over_limit: true` 强制提交（Telegram 仍可能拒绝）。
+  打开「覆盖同名文件」后，已完成/失败/暂停的媒体行下载按钮会变成「重新下载」并允许点击，
+  由后端重置任务后从零覆盖；排队中/下载中的任务不能打断。
+- 任务面板（已移至「下载队列」页）：状态页签（全部/等待/下载中/已暂停/已完成/失败）+ 数量；
+  每行展示文件、会话、大小、进度条、速度、剩余时间、状态与操作（暂停/继续/重试/复制源链接/删除）；
+  任务行的速度与剩余时间按最近 **10 秒滑动平均**计算（只影响展示与 ETA，接口原始 speed 不变）；
   图片任务可点缩略图看大图；删除可勾选「同时删除已下载文件」。
+- 已完成任务在「已保存到 …」旁提供「查看原图 / 播放视频 / 播放音频 / 下载文件」，
+  指向 `GET /downloads/{id}/file`（支持 Range）；只对 `done` 任务显示。
 - 缩略图：优先用创建时登记的 token 地址，失败自动回退 `/downloads/{id}/thumbnail`
-  惰性生成，两者都失败才显示类型图标。
-- SSE 实时进度 + 断线轮询兜底（见 §3.3）。
+  惰性生成，两者都失败才显示类型图标。图片查看器优先用已完成任务的原文件
+  （`/downloads/{id}/file`），失败后再按
+  `preview_url → thumbnail_url → /downloads/{id}/thumbnail` 逐级回退：
+  token 约 30 分钟失效（进程重启后也会失效），不能让查看器停在失效的大图地址。
+- 下载队列页（`/queue`）：顶部是实时速度卡片（大号当前速度 + 运行任务/平均/峰值指标块 +
+  canvas 曲线，最近 5 分钟、1s 粒度；
+  曲线做 **10 秒滑动平均**，只影响绘制与「无活动」判断，卡片上的当前/平均/峰值仍是
+  接口原始统计；纵轴按平滑后的峰值自适应，空载时用 1 MB 刻度；平滑后全为 0 时转灰并
+  显示「无活动」，因此下载结束后约 10 秒才进入无活动态；数据来自
+  `GET /downloads/stats/history`；活动时 1s 轮询、空闲 10s）；下方是任务面板
+  （从下载页移入，SSE 实时进度 + 断线轮询兜底，见 §3.3）。
+  平均/峰值统计可通过 `POST /downloads/stats/reset` 清空（曲线样本保留）；卡片暂未放按钮。
 
-【规划中】下载草稿（W10）与输入历史（W11）：草稿保存 `links` / `expand_text_links` /
-`overwrite` 与上次解析摘要，刷新/换浏览器后恢复；历史保留最近 20 条解析批次，
-可回填但**不自动重新解析**。依赖后端 `downloads/draft`、`downloads/history`，前端暂未实现。
+【已实现】下载草稿（W10）与输入历史（W11）：草稿保存 `links` 与上次解析摘要
+（两个开关在系统配置里），刷新/换浏览器后恢复，且恢复出非空草稿时自动解析一次；
+历史保留最近 20 条解析批次，每行带封面（来自后端 `thumbnail/` 磁盘缓存），
+可回填并自动解析。后端接口 `downloads/draft`、`downloads/history` 已就绪。
 
 ### 4.6 会话与消息（W5a–W5c，【规划中】）
 
@@ -403,10 +455,14 @@ GET /health（带 token，如果有）
 - 错误：页面级用 `ErrorState`（可重试）；操作失败用 toast；表单校验用字段内联错误。
   规则：用户能改的放内联，系统级的放 toast/页面。
 - 破坏性操作统一 `ModalDialog` + 危险按钮二次确认。
+- 写入等待：设置页的写请求用全局遮罩层（`GlobalLoadingOverlay`）阻断重复操作；
+  弹窗内仍保留按钮级 pending 文案，不改动原有表单校验与 toast。
 - 可访问性：弹窗有标题与描述；图标按钮带 `aria-label`；焦点环可见；
   状态不只靠颜色；骨架带 `role="status"` / `aria-busy`。
 - 文案全中文、动词开头；服务端中文错误直接展示，不二次包装；
   技术名词保留原文（MTProto、Bot API、session、tdata、token）。
+- 界面文案只描述用户能做什么、会发生什么，不暴露表名、localStorage、config.items
+  等实现细节；异常兜底行为在发生时就地提示（例如保存失败 toast），不写进常态说明。
 
 ### 5.5 公共组件
 
@@ -417,6 +473,10 @@ GET /health（带 token，如果有）
 `AccountPickerDialog`：在 `ModalDialog` 上封装「从账号列表单选」，
 参数 `open/onOpenChange`、`onConfirm(account)`、`title/description/confirmLabel`、
 `defaultAccountId`；只有 `authed` 账号可选，关闭时清空手动选择，数据复用账号列表缓存。
+
+`GlobalLoadingOverlay`：全屏遮罩等待层，参数 `open`、`label`、`description`、`className`；
+铺满视口并拦截鼠标/触摸，`role="status"` / `aria-busy`，延迟 150ms 淡入以避开快速响应的闪屏，
+用于设置页等「写入期间禁止继续操作」的场景。
 
 ## 6. 工程规范
 
@@ -434,10 +494,10 @@ GET /health（带 token，如果有）
 ### 6.2 测试
 
 - 范围：`src/api`（client/events）、`src/lib`（format/mask/settings/account/chat/download/
-  gallery/rich-text/clipboard）、`src/hooks`（download events）、无 DOM 组件
-  （`MessageText` 用 `renderToStaticMarkup`）。
+  gallery/rich-text/clipboard 等）、`src/hooks`（download events）、无 DOM 组件
+  （`MessageText`、`GlobalLoadingOverlay` 用 `renderToStaticMarkup`）。
 - 不写快照测试；不为 shadcn 组件写测试；不引入 jsdom（除非后续要测交互组件）。
-- 当前：13 个文件、103 个用例全绿。
+- 当前：20 个文件、190 个用例全绿。
 
 ### 6.3 提交与验收
 
@@ -463,22 +523,28 @@ GET /health（带 token，如果有）
 | W7 打包联调 | 后端 `go:embed`、SPA fallback、深链刷新、单二进制 | 【已实现】 | 后端 web 挂载 |
 | W8 监控页 | 列表、创建向导、过滤规则、试运行、命中记录、状态 SSE | 【规划中】 | 后端 monitors/events |
 | W9 RSS 入口 | 监控详情里的订阅区：创建/复制/停用/轮换 feed | 【规划中】 | 后端 feeds |
-| W10 下载草稿 | 输入 + 上次解析摘要的保存/恢复、保存状态提示 | 【规划中】 | 后端 downloads/draft |
-| W11 下载历史 | 历史面板、摘要展示、回填、删除/清空 | 【规划中】 | 后端 downloads/history |
+| W10 下载草稿 | 输入 + 上次解析摘要的保存/恢复、保存状态提示 | 【已实现】 | 后端 downloads/draft |
+| W11 下载历史 | 历史面板、摘要展示、回填、删除/清空 | 【已实现】 | 后端 downloads/history |
 
 ### 7.2 依赖顺序
 
 1. W5a → W5b → W5c：会话列表先落地，消息流需要 `peer` 与会话元数据，媒体批量依赖前两者。
-2. W8 → W9：RSS 入口挂在监控详情里。
-3. W10、W11 与主线无强依赖，可在任意阶段并行；都需要后端先提供接口。
+2. W10、W11 与主线无强依赖，可在任意阶段并行；后端里程碑总表把对应的 M12/M13
+   排在会话界面之后、监控之前（见 [服务端 plan.md §4.1](../../tg_down_server/doc/plan.md#41-里程碑总表)）。
+3. W8 → W9：RSS 入口挂在监控详情里。
 4. 拆包（路由级 `import()`）作为独立小项，等页面数量再增加时做。
 
 ### 7.3 进度记录
 
 - 2026-11-19：W0–W4 完成。
 - 2026-11-20：W6（下载 + SSE）完成。
-- 2026-11-22：W7 的后端内嵌完成（默认构建产出单文件二进制）。
-- 待办：W5a–W5c、W8–W11。
+- 2026-11-22：W7 的后端内嵌完成（默认构建产出单文件二进制）；W10/W11（下载草稿与历史）完成。
+- 2026-11-22：任务面板移入「下载队列」页，并在页顶新增 canvas 实时速度曲线
+  （`GET /downloads/stats/history`）。
+- 2026-11-23：设置页写入请求接入全局遮罩等待层（`GlobalLoadingOverlay`），保存中禁止关闭弹窗。
+- 2026-11-23：美化实时速度卡片（大号当前速度、指标块、活动/空闲状态徽章、
+  加载/失败/空态占位，曲线改渐变描边 + 面积渐变 + 辉光终点）。
+- 待办：W5a–W5c、W8–W9。
 
 ## 8. 后端契约需求（前端视角）
 
@@ -492,9 +558,10 @@ GET /health（带 token，如果有）
 | P2 | `monitors` CRUD、`test`、`matches`、`resolve` + SSE | 监控页 | 未实现 |
 | P2 | `feeds` 创建 / 列表 / 删除 / 轮换 | RSS 入口 | 未实现 |
 | P2 | 打开下载目录 / 复制路径接口 | 任务行「打开所在目录」 | 未实现 |
+| P2 | `GET/HEAD /downloads/{id}/file` | 任务行打开原文件、图片查看器原图、音视频 Range 播放 | 已实现 |
 | P2 | `download_dir` / `max_concurrency` 登记为可写配置 | 设置页 | 未登记 |
-| P3 | `GET/PUT /downloads/draft` | 输入草稿 | 未实现 |
-| P3 | `/downloads/history` 列表/详情/记录/删除 | 输入历史 | 未实现 |
+| P3 | `GET/PUT /downloads/draft` | 输入草稿 | 已实现 |
+| P3 | `/downloads/history` 列表/详情/记录/删除 | 输入历史 | 已实现 |
 
 已解决、无需再提：settings 密码脱敏（`***`）、迁移并发安全、账号删除、
 媒体缩略图接口、`downloads` CRUD 与 SSE、`GET /system`。
@@ -558,4 +625,4 @@ GET /health（带 token，如果有）
 - 路由级拆包未做（主包约 743 KB，gzip 233 KB），等页面增多后统一处理。
 - 空库、非当前账号切换、未知配置键等分支主要靠单测覆盖，未在浏览器逐一验证。
 - `useDocumentTitle` 依赖 `PageHeader`；新增页面若不用它需自行调用。
-- 下载页草稿/历史只有设计（§4.5），代码与后端接口都未实现。
+- 下载页草稿/历史（W10/W11）已实现，见 §4.5；剩余项见 §8。

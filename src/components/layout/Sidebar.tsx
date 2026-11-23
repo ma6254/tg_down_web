@@ -1,14 +1,24 @@
-import { DownloadIcon, LogOutIcon, SettingsIcon, UsersIcon } from "lucide-react"
+import {
+  DownloadIcon,
+  ListOrderedIcon,
+  LogOutIcon,
+  SettingsIcon,
+  UsersIcon,
+} from "lucide-react"
 import { NavLink } from "react-router-dom"
 import { Brand } from "@/components/layout/Brand"
 import { ThemeToggle } from "@/components/ThemeToggle"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
+import { useDownloads } from "@/hooks/use-downloads"
+import { countActiveDownloads } from "@/lib/download"
 import { cn } from "@/lib/utils"
 
 const navItems = [
   { to: "/accounts", label: "账号", icon: UsersIcon },
   { to: "/downloads", label: "下载", icon: DownloadIcon },
+  { to: "/queue", label: "下载队列", icon: ListOrderedIcon },
   { to: "/settings", label: "设置", icon: SettingsIcon },
 ]
 
@@ -20,6 +30,11 @@ interface SidebarProps {
 /** 侧栏：品牌、主导航、底部连接状态与主题/退出入口；移动端复用放进 Sheet。 */
 export function Sidebar({ className, onNavigate }: SidebarProps) {
   const { token, logout } = useAuth()
+
+  // 侧栏常驻在所有页面：这里订阅任务列表，队列入队/开始时徽标能跟着更新。
+  // 有进行中任务（running / pending）时 useDownloads 每 2s 轮询，全部结束后自动停止。
+  const downloads = useDownloads()
+  const activeCount = countActiveDownloads(downloads.data ?? [])
 
   return (
     <aside
@@ -50,6 +65,15 @@ export function Sidebar({ className, onNavigate }: SidebarProps) {
           >
             <Icon className="size-4" />
             {label}
+            {to === "/queue" && activeCount > 0 ? (
+              <Badge
+                className="ml-auto min-w-5 justify-center px-1.5 tabular-nums"
+                title={`${activeCount} 个任务正在下载或排队`}
+              >
+                <span className="sr-only">，{activeCount} 个任务正在下载或排队</span>
+                <span aria-hidden="true">{activeCount}</span>
+              </Badge>
+            ) : null}
           </NavLink>
         ))}
       </nav>

@@ -116,6 +116,32 @@ export function formatBytes(bytes?: number): string {
   return `${value.toFixed(1)} ${units[unit]}`
 }
 
+/**
+ * 速度拆成数值与单位，供大字号排版：`{ value: "1.5", unit: "MB/s" }`。
+ *
+ * 无效值返回 `{ value: "—", unit: "" }`，调用方无需再判空。
+ */
+export function formatSpeedParts(bytesPerSecond?: number): {
+  value: string
+  unit: string
+} {
+  if (
+    bytesPerSecond === undefined ||
+    !Number.isFinite(bytesPerSecond) ||
+    bytesPerSecond < 0
+  ) {
+    return { value: "—", unit: "" }
+  }
+  const [value, unit = "B"] = formatBytes(bytesPerSecond).split(" ")
+  return { value, unit: `${unit}/s` }
+}
+
+/** 速度：`512 B/s` / `1.5 MB/s`；无效值返回 `—`。 */
+export function formatSpeed(bytesPerSecond?: number): string {
+  const { value, unit } = formatSpeedParts(bytesPerSecond)
+  return unit ? `${value} ${unit}` : value
+}
+
 /** 秒数 → `13:40` / `1:02:03`；无效值返回 `—`。 */
 export function formatDuration(seconds?: number): string {
   if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {

@@ -5,9 +5,16 @@ import type {
   AccountLogoutResponse,
   AccountDeleteResponse,
   AccountsResponse,
+  CommentsResponse,
   DownloadAction,
   DownloadCreateRequest,
   DownloadCreateResponse,
+  DownloadDraft,
+  DownloadDraftInput,
+  DownloadHistoryDetail,
+  DownloadHistoryInput,
+  DownloadHistoryList,
+  DownloadSpeedHistory,
   DownloadStatus,
   DownloadTask,
   Health,
@@ -20,6 +27,20 @@ import type {
   SettingsResponse,
   SystemInfo,
 } from "@/api/types"
+
+/** 历史封面地址：直接放进 <img src>，没有封面时返回 404。 */
+export function downloadHistoryCoverUrl(id: number): string {
+  return `/api/v1/downloads/history/${id}/cover`
+}
+
+/**
+ * 已下载文件地址：可直接用于新标签页、<video>/<audio> 或图片查看器。
+ *
+ * 支持 Range，视频/音频拖动进度条不会拉取整个文件；只在任务已下载完成时有内容。
+ */
+export function downloadFileUrl(id: number): string {
+  return `/api/v1/downloads/${id}/file`
+}
 
 export interface HealthOptions {
   signal?: AbortSignal
@@ -119,6 +140,28 @@ export const api = {
         timeoutMs: 310_000,
       })
     },
+    /**
+     * 读取频道帖子评论区（只读）。
+     *
+     * 服务端超时 45s，客户端留 5s 余量；点开评论时才调用。
+     */
+    comments(
+      params: { link: string; limit?: number; offset_id?: number },
+      signal?: AbortSignal
+    ): Promise<CommentsResponse> {
+      const query = new URLSearchParams()
+      query.set("link", params.link)
+      if (params.limit !== undefined) {
+        query.set("limit", String(params.limit))
+      }
+      if (params.offset_id) {
+        query.set("offset_id", String(params.offset_id))
+      }
+      return request<CommentsResponse>(`/links/comments?${query.toString()}`, {
+        signal,
+        timeoutMs: 50_000,
+      })
+    },
   },
 
   downloads: {
@@ -147,12 +190,71 @@ export const api = {
     get(id: number, signal?: AbortSignal): Promise<DownloadTask> {
       return request<DownloadTask>(`/downloads/${id}`, { signal })
     },
+    /** 历史速度曲线：from/to 为 Unix 秒，bucket 省略时服务端自动选粒度。 */
+    speedHistory(
+      params: { from: number; to: number; bucket?: number },
+      signal?: AbortSignal
+    ): Promise<DownloadSpeedHistory> {
+      const query = new URLSearchParams()
+      query.set("from", String(params.from))
+      query.set("to", String(params.to))
+      if (params.bucket) {
+        query.set("bucket", String(params.bucket))
+      }
+      return request<DownloadSpeedHistory>(
+        `/downloads/stats/history?${query.toString()}`,
+        { signal }
+      )
+    },
     control(id: number, action: DownloadAction): Promise<DownloadTask> {
       return request<DownloadTask>(`/downloads/${id}/${action}`, { method: "POST" })
     },
     remove(id: number, deleteFile: boolean): Promise<{ ok: boolean }> {
       const suffix = deleteFile ? "?delete_file=true" : ""
       return request<{ ok: boolean }>(`/downloads/${id}${suffix}`, {
+        method: "DELETE",
+      })
+    },
+
+    /** 下载页输入草稿：没有草稿时后端返回默认值，不会 404。 */
+    draft(signal?: AbortSignal): Promise<DownloadDraft> {
+      return request<DownloadDraft>("/downloads/draft", { signal })
+    },
+    /** 全量保存草稿；cache 为 null 表示清除摘要，省略表示保留。 */
+    saveDraft(
+      body: DownloadDraftInput,
+      options: { keepalive?: boolean } = {}
+    ): Promise<DownloadDraft> {
+      return request<DownloadDraft>("/downloads/draft", {
+        method: "PUT",
+        body,
+        keepalive: options.keepalive,
+      })
+    },
+    /** 最近解析过的输入批次（服务端只保留最近 20 条）。 */
+    history(limit = 20, signal?: AbortSignal): Promise<DownloadHistoryList> {
+      return request<DownloadHistoryList>(`/downloads/history?limit=${limit}`, {
+        signal,
+      })
+    },
+    /** 历史详情：包含完整 links 与摘要缓存，用于回填。 */
+    historyDetail(id: number, signal?: AbortSignal): Promise<DownloadHistoryDetail> {
+      return request<DownloadHistoryDetail>(`/downloads/history/${id}`, { signal })
+    },
+    /** 记录一次成功解析；内容重复时后端返回 200 并累加使用次数。 */
+    recordHistory(body: DownloadHistoryInput): Promise<DownloadHistoryDetail> {
+      return request<DownloadHistoryDetail>("/downloads/history", {
+        method: "POST",
+        body,
+      })
+    },
+    removeHistory(id: number): Promise<{ ok: boolean }> {
+      return request<{ ok: boolean }>(`/downloads/history/${id}`, {
+        method: "DELETE",
+      })
+    },
+    clearHistory(): Promise<{ ok: boolean; removed: number }> {
+      return request<{ ok: boolean; removed: number }>("/downloads/history", {
         method: "DELETE",
       })
     },

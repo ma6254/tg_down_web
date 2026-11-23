@@ -5,6 +5,7 @@ import { AccountsPage } from "@/pages/accounts"
 import { DownloadsPage } from "@/pages/downloads"
 import { LoginPage } from "@/pages/login"
 import { NotFoundPage } from "@/pages/not-found"
+import { QueuePage } from "@/pages/queue"
 import { RouteErrorPage } from "@/pages/route-error"
 import { SettingsPage } from "@/pages/settings"
 
@@ -19,6 +20,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/accounts" replace /> },
           { path: "accounts", element: <AccountsPage /> },
           { path: "downloads", element: <DownloadsPage /> },
+          { path: "queue", element: <QueuePage /> },
           { path: "settings", element: <SettingsPage /> },
           { path: "*", element: <NotFoundPage /> },
         ],
