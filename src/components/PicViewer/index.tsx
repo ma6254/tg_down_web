@@ -182,6 +182,11 @@ function PicViewerDialog({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [containerNode, setContainerNode] = useState<HTMLDivElement | null>(null)
   const previewImageRef = useRef<HTMLImageElement | null>(null)
+  // 切换图片时的横向滑动动画：wrapper 承载动画，避免干扰图片自身的缩放/平移 transform。
+  const slideRef = useRef<HTMLDivElement | null>(null)
+  const slideAnimationRef = useRef<Animation | null>(null)
+  const slideDirectionRef = useRef<1 | -1>(1)
+  const lastSlideSrcRef = useRef<string | null>(null)
   const naturalSizeRef = useRef({ width: 0, height: 0 })
   const rotationRef = useRef(0)
   const viewRef = useRef({ scale: 1, x: 0, y: 0 })
@@ -410,6 +415,10 @@ function PicViewerDialog({
   }, [handleFitToScreen, open, scheduleFitToView, src])
 
   // 键盘左右箭头切换上一张 / 下一张。
+  //
+  // 必须用捕获阶段：查看器常常挂在 Dialog 里（评论弹窗、账号详情），
+  // base-ui 的 DialogPopup 会对方向键调用 stopPropagation，冒泡阶段的
+  // window 监听收不到事件，左右键就会失效。
   useEffect(() => {
     if (!open) return undefined
 
@@ -417,19 +426,54 @@ function PicViewerDialog({
       if (e.key === 'ArrowLeft') {
         if (hasPrev && onPrev) {
           e.preventDefault()
+          slideDirectionRef.current = -1
           onPrev()
         }
       } else if (e.key === 'ArrowRight') {
         if (hasNext && onNext) {
           e.preventDefault()
+          slideDirectionRef.current = 1
           onNext()
         }
       }
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [hasNext, hasPrev, onNext, onPrev, open])
+
+  // 切换图片时让新图从切换方向滑入：下一张从右侧、上一张从左侧。
+  //
+  // 动画加在包裹层上，不碰 img 自己的 transform（缩放/平移/旋转都写在 img 上），
+  // 否则会和用户的缩放状态打架。首次打开与非用户触发的切换不播动画。
+  useEffect(() => {
+    const el = slideRef.current
+    const src = imageUrl ?? null
+    if (!open || !el) {
+      lastSlideSrcRef.current = src
+      return
+    }
+    if (lastSlideSrcRef.current === null || lastSlideSrcRef.current === src) {
+      lastSlideSrcRef.current = src
+      return
+    }
+    lastSlideSrcRef.current = src
+
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      return
+    }
+
+    const direction = slideDirectionRef.current
+    slideDirectionRef.current = 1
+    slideAnimationRef.current?.cancel()
+    slideAnimationRef.current = el.animate(
+      [
+        { transform: `translateX(${direction * 56}px)`, opacity: 0.4 },
+        { transform: 'translateX(0)', opacity: 1 },
+      ],
+      { duration: 220, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' }
+    )
+  }, [imageUrl, open])
 
   // 非被动滚轮监听，避免阻止默认滚动失效；以鼠标位置为中心缩放。
   // 依赖 containerNode 保证 DOM 元素已挂载后再绑定事件。
@@ -690,7 +734,10 @@ function PicViewerDialog({
                 {hasPrev && (
                   <button
                     type="button"
-                    onClick={onPrev}
+                    onClick={() => {
+                      slideDirectionRef.current = -1
+                      onPrev?.()
+                    }}
                     onMouseDown={(e) => e.preventDefault()}
                     onPointerDown={(e) => e.stopPropagation()}
                     className="absolute left-3 top-1/2 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white/90 transition hover:bg-black/60"
@@ -702,7 +749,10 @@ function PicViewerDialog({
                 {hasNext && (
                   <button
                     type="button"
-                    onClick={onNext}
+                    onClick={() => {
+                      slideDirectionRef.current = 1
+                      onNext?.()
+                    }}
                     onMouseDown={(e) => e.preventDefault()}
                     onPointerDown={(e) => e.stopPropagation()}
                     className="absolute right-3 top-1/2 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white/90 transition hover:bg-black/60"
@@ -712,7 +762,16 @@ function PicViewerDialog({
                   </button>
                 )}
 
-                <img
+                <div
+                  ref={slideRef}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    willChange: 'transform, opacity',
+                  }}
+                >
+                  <img
                   ref={previewImageRef}
                   src={imageUrl}
                   alt={alt ?? displayPath}
@@ -741,6 +800,7 @@ function PicViewerDialog({
                   }}
                   draggable={false}
                 />
+                </div>
               </div>
             </div>
           </TooltipProvider>

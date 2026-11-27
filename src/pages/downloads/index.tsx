@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
+  ChevronRightIcon,
   DownloadIcon,
   ExternalLinkIcon,
   FileIcon,
@@ -20,7 +21,6 @@ import { describeError } from "@/api/client"
 import type {
   DownloadHistoryEntry,
   DownloadTask,
-  PreviewChat,
   PreviewItem,
   PreviewMedia,
 } from "@/api/types"
@@ -63,8 +63,9 @@ import {
   summarizeCreateResult,
 } from "@/lib/download"
 import { draftCacheFromPreview, formatCacheSummary } from "@/lib/draft"
+import { previewCacheStatus } from "@/lib/cache"
 import { settingBool } from "@/lib/settings"
-import { chatTypeLabel, commonChat } from "@/lib/chat"
+import { chatName, chatTypeLabel, commonChat } from "@/lib/chat"
 import { commentButtonLabel } from "@/lib/comments"
 import { formatBytes, formatDuration } from "@/lib/format"
 import { mediaGallery, type GalleryImage } from "@/lib/gallery"
@@ -207,9 +208,16 @@ export function DownloadsPage() {
       record?: boolean
       /** 自动预览不弹 toast，错误仍显示在页面上。 */
       silent?: boolean
+      /**
+       * 绕过服务端消息缓存重新读取。
+       *
+       * 用于「重新解析」：用户主动重解析就是想看消息有没有被编辑，
+       * 命中 24 小时缓存会让他以为内容没变。
+       */
+      refresh?: boolean
     } = {}
   ) {
-    const { record = true, silent = false } = options
+    const { record = true, silent = false, refresh = false } = options
     setCommentsItem(null)
     const text = options.links ?? links
     const input = splitLinks(text)
@@ -221,7 +229,11 @@ export function DownloadsPage() {
     }
 
     preview.mutate(
-      { links: input, expand_text_links: expand },
+      {
+        links: input,
+        expand_text_links: expand,
+        ...(refresh ? { refresh: true } : {}),
+      },
       {
         onSuccess: (result) => {
           if (!silent) {
@@ -464,19 +476,41 @@ export function DownloadsPage() {
             </div>
           </div>
 
-          <Button
-            type="submit"
-            size="sm"
-            className="w-full sm:w-auto"
-            disabled={targets.length === 0 || preview.isPending}
-          >
-            {preview.isPending ? (
-              <Loader2Icon className="animate-spin" />
-            ) : (
-              <SearchIcon />
-            )}
-            {preview.isPending ? "解析中…" : "解析预览"}
-          </Button>
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            {/* 解析过一次后才有缓存可绕过；没有结果时不占位。 */}
+            {data ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => runPreview({ refresh: true })}
+                disabled={preview.isPending || targets.length === 0}
+                title="绕过本地缓存，重新从 Telegram 读取（消息被编辑后用它看最新内容）"
+                aria-label="绕过缓存重新解析"
+              >
+                {preview.isPending ? (
+                  <Loader2Icon className="animate-spin" />
+                ) : (
+                  <RefreshCwIcon />
+                )}
+                强制刷新
+              </Button>
+            ) : null}
+            <Button
+              type="submit"
+              size="sm"
+              className="w-full sm:w-auto"
+              disabled={targets.length === 0 || preview.isPending}
+            >
+              {preview.isPending ? (
+                <Loader2Icon className="animate-spin" />
+              ) : (
+                <SearchIcon />
+              )}
+              {preview.isPending ? "解析中…" : "解析预览"}
+            </Button>
+          </div>
         </div>
 
         <p
@@ -484,7 +518,7 @@ export function DownloadsPage() {
           className="mt-3 text-xs leading-relaxed text-muted-foreground"
         >
           支持频道帖子、讨论组评论、私有频道（t.me/c/…）与话题链接；解析只读取消息，
-          不会创建下载任务。
+          不会创建下载任务。解析结果会在本地缓存 24 小时，消息被编辑后点「强制刷新」重新读取。
         </p>
       </form>
 
@@ -507,8 +541,9 @@ export function DownloadsPage() {
               type="button"
               variant="outline"
               size="xs"
-              onClick={() => runPreview()}
+              onClick={() => runPreview({ refresh: true })}
               disabled={preview.isPending || targets.length === 0}
+              title="绕过本地缓存，重新从 Telegram 读取"
             >
               {preview.isPending ? (
                 <Loader2Icon className="animate-spin" />
@@ -759,11 +794,6 @@ export function DownloadsPage() {
   )
 }
 
-/** 会话展示名：标题优先，其次用户名。 */
-function chatName(chat?: PreviewChat | null): string {
-  return chat?.title ?? (chat?.username ? `@${chat.username}` : "未知会话")
-}
-
 /** 一条消息的正文：会话、配图（相册则整组）、正文与内嵌链接。 */
 function MessageBlock({
   item,
@@ -787,6 +817,7 @@ function MessageBlock({
   const markCoverBroken = (key: string) =>
     setBrokenCovers((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
   const coverBroken = (image: GalleryImage) => brokenCovers.has(image.key)
+  const cacheStatus = previewCacheStatus(item)
 
   return (
     <article className="space-y-2 border-b pb-4 last:border-b-0 last:pb-0">
@@ -831,18 +862,26 @@ function MessageBlock({
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          {item.comment_section?.available ? (
-            <Button
-              type="button"
+          {cacheStatus.kind === "gone" || cacheStatus.kind === "stale" ? (
+            <Badge
               variant="outline"
-              size="xs"
-              onClick={() => onOpenComments(item)}
-              title={`查看评论（${item.comment_section.count} 条）`}
-              aria-label={`查看评论（${item.comment_section.count} 条）`}
+              className={cn(
+                "shrink-0 font-normal",
+                cacheStatus.kind === "gone"
+                  ? "border-destructive/40 text-destructive"
+                  : "border-amber-500/40 text-amber-600 dark:text-amber-500"
+              )}
+              title={cacheStatus.title}
             >
-              <MessageCircleIcon />
-              {commentButtonLabel(item.comment_section)}
-            </Button>
+              {cacheStatus.label}
+            </Badge>
+          ) : cacheStatus.kind === "cached" ? (
+            <span
+              className="shrink-0 text-[11px] text-muted-foreground/70"
+              title={cacheStatus.title}
+            >
+              {cacheStatus.label}
+            </span>
           ) : null}
           <a
             href={item.link}
@@ -1006,6 +1045,25 @@ function MessageBlock({
           ) : null}
         </div>
       ) : null}
+
+      {item.comment_section?.available ? (
+        <button
+          type="button"
+          onClick={() => onOpenComments(item)}
+          title={`查看评论（${item.comment_section.count} 条）`}
+          aria-label={`查看评论（${item.comment_section.count} 条）`}
+          className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-muted/60"
+        >
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <MessageCircleIcon className="size-3.5 shrink-0" />
+            <span className="truncate">{commentButtonLabel(item.comment_section)}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+            查看评论
+            <ChevronRightIcon className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </button>
+      ) : null}
     </article>
   )
 }
@@ -1028,6 +1086,8 @@ function MediaRow({
   onDownload: (allowOverLimit?: boolean) => void
 }) {
   const [forceOpen, setForceOpen] = useState(false)
+  // 失效消息的正文来自快照，悬停提示里会带上快照时间。
+  const cacheStatus = previewCacheStatus(item)
   const meta = [
     item.chat?.title,
     mediaKindLabel(media.kind),
@@ -1051,25 +1111,30 @@ function MediaRow({
     task?.status === "pending" || task?.status === "running"
   // 只有覆盖模式才允许重跑已停止的任务；排队中/下载中不能打断。
   const canRestart = Boolean(task) && overwrite && !active
+  // 消息已失效时不能下载：服务端会拒绝，提前禁用并说明原因。
   // 超过上限不再禁用按钮，点击后走二次确认再强制提交。
-  const disabled = active || busy || (Boolean(task) && !canRestart)
+  const disabled = active || busy || item.gone || (Boolean(task) && !canRestart)
 
-  const actionTitle = task
-    ? active
-      ? `已在下载任务中（${downloadStatusLabel(task.status)}）`
-      : overwrite
-        ? "覆盖同名文件并重新下载"
-        : `已在下载任务中（${downloadStatusLabel(task.status)}）；打开「覆盖同名文件」可重新下载`
-    : media.downloadable
-      ? "只下载这个文件（相册不会整组展开）"
-      : "超过当前账号的单文件上限；点击后二次确认仍可强行下载"
-  const actionLabel = canRestart
-    ? `覆盖并重新下载 ${media.file_name}`
+  const actionTitle = item.gone
+    ? "消息已删除或当前账号不可见，无法下载"
     : task
-      ? `${media.file_name} 已在下载任务中`
+      ? active
+        ? `已在下载任务中（${downloadStatusLabel(task.status)}）`
+        : overwrite
+          ? "覆盖同名文件并重新下载"
+          : `已在下载任务中（${downloadStatusLabel(task.status)}）；打开「覆盖同名文件」可重新下载`
       : media.downloadable
-        ? `只下载 ${media.file_name}`
-        : `强行下载 ${media.file_name}`
+        ? "只下载这个文件（相册不会整组展开）"
+        : "超过当前账号的单文件上限；点击后二次确认仍可强行下载"
+  const actionLabel = item.gone
+    ? `${media.file_name} 已失效`
+    : canRestart
+      ? `覆盖并重新下载 ${media.file_name}`
+      : task
+        ? `${media.file_name} 已在下载任务中`
+        : media.downloadable
+          ? `只下载 ${media.file_name}`
+          : `强行下载 ${media.file_name}`
 
   return (
     <>
@@ -1118,7 +1183,16 @@ function MediaRow({
               {downloadStatusLabel(task.status)}
             </Badge>
           ) : null}
-          {media.downloadable ? null : (
+          {item.gone ? (
+            <Badge
+              variant="outline"
+              className="shrink-0 border-destructive/40 text-destructive"
+              title={cacheStatus.title}
+            >
+              已失效
+            </Badge>
+          ) : null}
+          {media.downloadable || item.gone ? null : (
             <Badge variant="secondary" className="shrink-0">
               超过上限
             </Badge>

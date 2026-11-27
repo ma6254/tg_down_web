@@ -7,6 +7,7 @@ import {
   Loader2Icon,
   MessageCircleIcon,
   RefreshCwIcon,
+  ReplyIcon,
 } from "lucide-react"
 import { describeError } from "@/api/client"
 import type {
@@ -20,6 +21,7 @@ import type {
 import { EmptyState } from "@/components/common/EmptyState"
 import { ErrorState } from "@/components/common/ErrorState"
 import { ModalDialog } from "@/components/common/ModalDialog"
+import { CommentPostCard } from "@/components/comments/CommentPostCard"
 import { PeerAvatar } from "@/components/common/PeerAvatar"
 import { MessageText } from "@/components/messages/MessageText"
 import { Badge } from "@/components/ui/badge"
@@ -32,6 +34,8 @@ import {
 } from "@/lib/comments"
 import { mediaKindLabel } from "@/lib/download"
 import { formatBytes, formatDateTime, formatDuration } from "@/lib/format"
+import { formatRelativeTime } from "@/lib/draft"
+import { chatName } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 
 interface CommentsDialogProps {
@@ -78,8 +82,8 @@ export function CommentsDialog({
 
   const footer = first ? (
     <div className="flex w-full flex-wrap items-center justify-between gap-2">
-      <span className="text-xs text-muted-foreground">
-        共 {total} 条评论
+      <span className="text-xs text-muted-foreground tabular-nums">
+        共 {total} 条
         {comments.length > 0 ? ` · 已显示 ${comments.length} 条` : ""}
       </span>
       <div className="flex items-center gap-2">
@@ -90,7 +94,9 @@ export function CommentsDialog({
             onClick={() => void query.fetchNextPage()}
             disabled={query.isFetchingNextPage}
           >
-            {query.isFetchingNextPage ? <Loader2Icon className="animate-spin" /> : null}
+            {query.isFetchingNextPage ? (
+              <Loader2Icon className="animate-spin" />
+            ) : null}
             {query.isFetchingNextPage ? "加载中…" : "加载更多"}
           </Button>
         ) : (
@@ -115,79 +121,114 @@ export function CommentsDialog({
       title={title}
       description={description}
       size="xl"
-      bodyClassName="space-y-4"
+      bodyClassName="space-y-3 p-3 sm:p-4"
       footer={footer}
     >
-      {query.isPending ? (
-        <CommentsLoading />
-      ) : query.isError && !first ? (
-        <ErrorState
-          title="评论加载失败"
-          message={describeError(query.error)}
-          onRetry={() => void query.refetch()}
-        />
-      ) : first && !first.available ? (
-        <EmptyState
-          icon={MessageCircleIcon}
-          title="评论区不可用"
-          description={first.reason || "该帖子没有开启评论。"}
-        />
-      ) : comments.length === 0 ? (
-        <EmptyState
-          icon={MessageCircleIcon}
-          title="还没有评论"
-          description="这个帖子的评论区暂时是空的。"
-        />
-      ) : (
-        <div className="space-y-4">
-          {first?.chat ? (
-            <CommentChatHeader chat={first.chat} total={first.total} />
-          ) : null}
-          <ul className="space-y-4">
-            {comments.map((comment) => (
-              <CommentItem
-                key={comment.id}
-                comment={comment}
-                onDownload={onDownload}
-                downloading={downloading}
+      <div className="space-y-3">
+        <CommentPostCard item={item} />
+
+        {query.isPending ? (
+          <CommentsSkeleton />
+        ) : query.isError && !first ? (
+          <ErrorState
+            title="评论加载失败"
+            message={describeError(query.error)}
+            onRetry={() => void query.refetch()}
+          />
+        ) : first && !first.available ? (
+          <EmptyState
+            icon={MessageCircleIcon}
+            title="评论区不可用"
+            description={first.reason || "该帖子没有开启评论。"}
+          />
+        ) : comments.length === 0 ? (
+          <EmptyState
+            icon={MessageCircleIcon}
+            title="还没有评论"
+            description="这个帖子的评论区暂时是空的。"
+          />
+        ) : (
+          <>
+            {first?.chat ? (
+              <CommentChatHeader chat={first.chat} total={total} />
+            ) : null}
+
+            <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+              {comments.map((comment) => (
+                <CommentItem
+                  key={comment.id}
+                  comment={comment}
+                  onDownload={onDownload}
+                  downloading={downloading}
+                />
+              ))}
+            </ul>
+
+            {query.isFetchingNextPage ? (
+              <p className="flex items-center justify-center gap-2 py-1 text-xs text-muted-foreground">
+                <Loader2Icon className="size-3.5 animate-spin" />
+                正在加载更早的评论…
+              </p>
+            ) : null}
+
+            {query.isError ? (
+              <ErrorState
+                title="加载更多失败"
+                message={describeError(query.error)}
+                onRetry={() => void query.fetchNextPage()}
               />
-            ))}
-          </ul>
-          {query.isError ? (
-            <ErrorState
-              title="加载更多失败"
-              message={describeError(query.error)}
-              onRetry={() => void query.fetchNextPage()}
-            />
-          ) : null}
-        </div>
-      )}
+            ) : null}
+          </>
+        )}
+      </div>
     </ModalDialog>
   )
 }
 
-function CommentsLoading() {
+/** 加载骨架：正文卡已经先渲染，这里只占评论列表的位置。 */
+function CommentsSkeleton() {
   return (
-    <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-      <Loader2Icon className="size-5 animate-spin" />
-      正在加载评论…
+    <div className="space-y-3">
+      <span className="sr-only">正在加载评论…</span>
+      <div className="divide-y overflow-hidden rounded-xl border bg-card" aria-hidden="true">
+        {[0, 1, 2].map((index) => (
+          <div key={index} className="flex gap-3 p-3 sm:p-4">
+            <div className="size-9 shrink-0 animate-pulse rounded-full bg-muted" />
+            <div className="flex-1 space-y-2 py-1">
+              <div className="h-3 w-1/4 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-full animate-pulse rounded bg-muted" />
+              <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
-function CommentChatHeader({ chat, total }: { chat: PreviewChat; total: number }) {
+/** 评论区上下文：讨论组是哪个、有多少条评论。 */
+function CommentChatHeader({
+  chat,
+  total,
+}: {
+  chat: PreviewChat
+  total: number
+}) {
   const name = chatName(chat)
   return (
-    <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
-      <PeerAvatar name={name} src={chat.avatar_url} className="size-8 text-xs" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{name}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          {chat.username ? `@${chat.username} · ` : ""}共 {total} 条评论
-        </p>
-      </div>
-      <Badge variant="secondary" className="shrink-0 font-normal">
-        评论区
+    <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+      <PeerAvatar
+        name={name}
+        src={chat.avatar_url}
+        className="size-5 text-[9px]"
+      />
+      <span className="truncate">
+        讨论组：{name}
+        {chat.username ? ` @${chat.username}` : ""}
+      </span>
+      <span className="shrink-0 tabular-nums">· 共 {total} 条评论</span>
+      <Badge variant="secondary" className="ml-auto shrink-0 font-normal">
+        讨论组
       </Badge>
     </div>
   )
@@ -207,20 +248,29 @@ function CommentItem({
   const dateTime = Number.isNaN(parsedDate.getTime())
     ? undefined
     : parsedDate.toISOString()
+
   return (
-    <li className="flex gap-3 border-b pb-4 last:border-b-0 last:pb-0">
+    <li className="flex gap-3 p-3 transition-colors hover:bg-muted/30 sm:p-4">
       <PeerAvatar
         name={author}
         src={comment.sender?.avatar_url}
-        className="mt-0.5 size-8 text-xs"
+        className="mt-0.5 size-9 text-xs"
       />
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span className="text-sm font-medium text-foreground">{author}</span>
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-sm font-medium">{author}</span>
           {comment.sender?.username ? (
-            <span>@{comment.sender.username}</span>
+            <span className="text-xs text-muted-foreground">
+              @{comment.sender.username}
+            </span>
           ) : null}
-          <time dateTime={dateTime}>{formatDateTime(comment.date)}</time>
+          <time
+            dateTime={dateTime}
+            title={formatDateTime(comment.date)}
+            className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
+          >
+            {formatRelativeTime(comment.date)}
+          </time>
         </div>
 
         {comment.reply_to ? <CommentReplyLine reply={comment.reply_to} /> : null}
@@ -253,11 +303,18 @@ function CommentItem({
 
 function CommentReplyLine({ reply }: { reply: PreviewCommentReply }) {
   return (
-    <div className="rounded-md border-l-2 border-primary/30 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
-      <span>回复 #{reply.message_id}</span>
-      {reply.quote ? (
-        <p className="mt-0.5 whitespace-pre-wrap break-words">{reply.quote}</p>
-      ) : null}
+    <div className="flex gap-2 rounded-lg border-l-2 border-primary/40 bg-muted/40 py-1.5 pr-2.5 pl-2.5">
+      <ReplyIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 text-xs">
+        <span className="text-muted-foreground tabular-nums">
+          回复 #{reply.message_id}
+        </span>
+        {reply.quote ? (
+          <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-foreground/80">
+            {reply.quote}
+          </p>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -271,7 +328,7 @@ function CommentLinks({ links }: { links: PreviewLink[] }) {
           href={link.url}
           target="_blank"
           rel="noreferrer"
-          className="max-w-full truncate rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="max-w-full truncate rounded-full border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
         >
           {link.text || link.url}
         </a>
@@ -304,7 +361,6 @@ function CommentMedia({
   const meta = [
     mediaKindLabel(media.kind),
     formatBytes(media.size),
-    media.duration ? formatDuration(media.duration) : "",
     media.width && media.height ? `${media.width}×${media.height}` : "",
   ]
     .filter(Boolean)
@@ -313,50 +369,54 @@ function CommentMedia({
   const canDownload = Boolean(onDownload && media.downloadable && link)
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border p-2">
-      {media.thumbnail_url && !failed ? (
-        <img
-          src={media.thumbnail_url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailed(true)}
-          className="size-16 shrink-0 rounded-md bg-muted object-cover"
-        />
-      ) : (
-        <span className="flex size-16 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-          <Icon className="size-5" />
-        </span>
-      )}
-      <div className="min-w-0 flex-1 space-y-1">
+    <figure className="group flex items-center gap-3 rounded-xl border bg-card p-2 pr-2.5 transition-colors hover:border-primary/40">
+      <div className="relative size-16 shrink-0 overflow-hidden rounded-lg bg-muted">
+        {media.thumbnail_url && !failed ? (
+          <img
+            src={media.thumbnail_url}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+            className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <span className="flex size-full items-center justify-center text-muted-foreground">
+            <Icon className="size-5" />
+          </span>
+        )}
+        {media.duration ? (
+          <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 py-px text-[10px] font-medium text-white tabular-nums">
+            {formatDuration(media.duration)}
+          </span>
+        ) : null}
+      </div>
+
+      <figcaption className="min-w-0 flex-1 space-y-0.5">
         <p className="truncate text-sm font-medium" title={media.file_name}>
           {media.file_name}
         </p>
-        <p className="text-xs text-muted-foreground">{meta}</p>
+        <p className="truncate text-xs text-muted-foreground">{meta}</p>
         {media.downloadable ? null : (
-          <Badge variant="secondary" className="font-normal">
+          <Badge variant="secondary" className="mt-0.5 font-normal">
             超过上限
           </Badge>
         )}
-      </div>
+      </figcaption>
+
       {canDownload && link ? (
         <Button
           variant="outline"
-          size="xs"
+          size="icon-sm"
+          className="shrink-0"
           onClick={() => onDownload?.(link)}
           disabled={downloading}
           title="下载这条评论里的媒体"
           aria-label={`下载 ${media.file_name}`}
         >
           <DownloadIcon />
-          下载
         </Button>
       ) : null}
-    </div>
+    </figure>
   )
-}
-
-/** 会话展示名：标题优先，其次用户名。 */
-function chatName(chat?: PreviewChat | null): string {
-  return chat?.title ?? (chat?.username ? `@${chat.username}` : "未知会话")
 }

@@ -254,7 +254,25 @@ export interface PreviewItem {
   medias?: PreviewMedia[]
   /** 频道帖子的评论区摘要；普通消息/评论链接省略。 */
   comment_section?: PreviewCommentSection
+  /** 结果来自服务端本地缓存，数据可能不是最新的；正常命中时不显示。 */
+  cached?: boolean
+  /** 缓存快照的获取时间（Unix 秒）；cached 为 false 时省略。 */
+  cached_at?: number
+  /** 缓存已过期且重新获取失败，正文是旧快照。 */
+  stale?: boolean
+  /** 消息已删除或当前账号不可见，正文是上次的快照；此时不能下载。 */
+  gone?: boolean
   error?: string
+}
+
+/** 本地缓存规模（行数）。 */
+export interface CacheStats {
+  /** 消息快照（message_cache）。 */
+  messages: number
+  /** 会话定位（peer_cache）。 */
+  peers: number
+  /** 评论线程定位（thread_cache）。 */
+  threads: number
 }
 
 export interface PreviewSummary {
@@ -272,10 +290,12 @@ export interface PreviewResponse {
   summary: PreviewSummary
 }
 
-/** 解析链接只读：不写数据库、不创建下载任务。 */
+/** 解析链接只读：不创建下载任务，消息快照由服务端缓存。 */
 export interface PreviewLinksRequest {
   links: string[]
   expand_text_links?: boolean
+  /** true 时绕过服务端消息缓存重新读取（仍会写回缓存）。 */
+  refresh?: boolean
 }
 
 /** 评论引用的回复目标。 */

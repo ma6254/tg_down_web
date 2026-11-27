@@ -39,3 +39,8 @@ export function commonChat(
   }
   return found
 }
+
+/** 会话展示名：标题优先，其次用户名。 */
+export function chatName(chat?: PreviewChat | null): string {
+  return chat?.title ?? (chat?.username ? `@${chat.username}` : "未知会话")
+}

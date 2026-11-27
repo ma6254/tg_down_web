@@ -5,6 +5,7 @@ import type {
   AccountLogoutResponse,
   AccountDeleteResponse,
   AccountsResponse,
+  CacheStats,
   CommentsResponse,
   DownloadAction,
   DownloadCreateRequest,
@@ -120,6 +121,17 @@ export const api = {
     },
     update(patch: SettingsPatch): Promise<SettingsResponse> {
       return request<SettingsResponse>("/settings", { method: "PUT", body: patch })
+    },
+  },
+
+  cache: {
+    /** 读取本地缓存规模（消息快照 / 会话定位 / 评论线程的行数）。 */
+    stats(signal?: AbortSignal): Promise<CacheStats> {
+      return request<CacheStats>("/cache", { signal })
+    },
+    /** 清空本地缓存，返回被删除的行数。 */
+    clear(): Promise<CacheStats> {
+      return request<CacheStats>("/cache", { method: "DELETE" })
     },
   },
 

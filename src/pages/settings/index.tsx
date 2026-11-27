@@ -11,6 +11,7 @@ import { useSelectAccount } from "@/hooks/use-accounts"
 import { useAuth } from "@/hooks/use-auth"
 import { useHealthStatus, useSettings, useSystemInfo } from "@/hooks/use-settings"
 import { buildSettingRows, type SettingRow } from "@/lib/settings"
+import { CacheCard } from "@/pages/settings/CacheCard"
 import { ClearSettingDialog } from "@/pages/settings/ClearSettingDialog"
 import { ServiceInfoCard } from "@/pages/settings/ServiceInfoCard"
 import { SettingEditDialog } from "@/pages/settings/SettingEditDialog"
@@ -100,6 +101,7 @@ export function SettingsPage() {
 
         <div className="order-2 space-y-4 xl:order-1 xl:col-start-1 xl:row-start-1">
           <WebSettingsCard />
+          <CacheCard />
           {settingsQuery.isPending ? (
             <SettingsSkeleton />
           ) : settingsQuery.error ? (
